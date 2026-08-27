@@ -1,0 +1,128 @@
+import { Request, Response } from 'express';
+import { storageService } from '../services/storage.service.js';
+import { initUploadSchema, completeUploadSchema, listFilesQuerySchema } from '../validators/file.validator.js';
+import { sendSuccess, sendError } from '../utils/response.js';
+
+export class FileController {
+  async initUpload(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const validatedData = initUploadSchema.parse(req.body);
+      const result = await storageService.initiateUpload(userId, validatedData);
+
+      return sendSuccess(res, result, 'Upload initialized successfully', 201);
+    } catch (err: any) {
+      const status = err.message?.includes('quota exceeded') ? 403 : 400;
+      return sendError(res, err.message || 'Failed to initialize upload', status);
+    }
+  }
+
+  async completeUpload(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const validatedData = completeUploadSchema.parse(req.body);
+      const result = await storageService.completeUpload(userId, validatedData);
+
+      return sendSuccess(res, result, 'Upload marked as completed');
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to complete upload', 400);
+    }
+  }
+
+  async directUpload(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      if (!req.file) {
+        return sendError(res, 'No file provided in multipart request', 400);
+      }
+
+      const folderId = (req.body.folderId as string) || null;
+      const fileIdParam = (req.query.fileId as string) || (req.body.fileId as string) || undefined;
+
+      const result = await storageService.directUpload(
+        userId,
+        {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          buffer: req.file.buffer
+        },
+        folderId,
+        fileIdParam
+      );
+
+      return sendSuccess(res, result, 'File uploaded successfully', 201);
+    } catch (err: any) {
+      const status = err.message?.includes('quota exceeded') ? 403 : 400;
+      return sendError(res, err.message || 'Failed to upload file', status);
+    }
+  }
+
+  async listFiles(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const query = listFilesQuerySchema.parse(req.query);
+      const result = await storageService.listFiles(userId, {
+        folderId: query.folderId,
+        limit: query.limit,
+        offset: query.offset
+      });
+
+      return sendSuccess(res, result.files, 'Files retrieved successfully', 200, {
+        total: result.total,
+        limit: query.limit,
+        offset: query.offset
+      });
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to list files', 400);
+    }
+  }
+
+  async getFile(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const file = await storageService.getFileById(userId, req.params.id);
+      return sendSuccess(res, { file }, 'File details retrieved');
+    } catch (err: any) {
+      const status = err.message?.includes('permission') ? 403 : 404;
+      return sendError(res, err.message || 'File not found', status);
+    }
+  }
+
+  async getDownloadUrl(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const result = await storageService.getDownloadUrl(userId, req.params.id);
+      return sendSuccess(res, result, 'Download URL generated');
+    } catch (err: any) {
+      const status = err.message?.includes('permission') ? 403 : 404;
+      return sendError(res, err.message || 'Failed to get download URL', status);
+    }
+  }
+}
+
+export const fileController = new FileController();
