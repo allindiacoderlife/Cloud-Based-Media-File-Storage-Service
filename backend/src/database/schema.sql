@@ -6,10 +6,11 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
--- 1. Users Profile Table (Extends Supabase Auth users)
+-- 1. Users Profile Table (Compatible with Supabase Auth or direct auth)
 CREATE TABLE IF NOT EXISTS public.users (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255),
     full_name VARCHAR(255),
     avatar_url TEXT,
     storage_used_bytes BIGINT NOT NULL DEFAULT 0,

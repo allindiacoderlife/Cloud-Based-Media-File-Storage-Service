@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Cloud, Shield, Zap, HardDrive, CheckCircle2, ArrowRight, Folder, File, Share2, Search } from 'lucide-react';
+import Link from 'next/link';
+import { Cloud, Shield, Zap, HardDrive, CheckCircle2, ArrowRight, Folder, File, Share2, Search, LogIn, LayoutDashboard } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/context/AuthContext';
 
 interface HealthStatus {
   uptime: number;
@@ -16,6 +18,7 @@ interface HealthStatus {
 }
 
 export default function Home() {
+  const { user } = useAuth();
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,16 +55,31 @@ export default function Home() {
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="hidden items-center space-x-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-400 sm:flex">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Day 1 Foundation Active</span>
-            </div>
-            <a
-              href="#status"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-md shadow-blue-600/25 transition-all hover:bg-blue-500 hover:shadow-blue-600/40"
-            >
-              System Status
-            </a>
+            {user ? (
+              <Link
+                href="/dashboard"
+                className="flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                <span>Go to Drive</span>
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="flex items-center space-x-1.5 rounded-lg border border-slate-800 bg-slate-900/60 px-3.5 py-2 text-xs font-medium text-slate-300 transition-all hover:border-slate-700 hover:text-white"
+                >
+                  <LogIn className="h-3.5 w-3.5" />
+                  <span>Sign In</span>
+                </Link>
+                <Link
+                  href="/register"
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/25 transition-all hover:bg-blue-500 hover:shadow-blue-600/40"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>

@@ -2,6 +2,14 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
+export const isSupabaseConfigured = Boolean(
+  env.SUPABASE_URL &&
+  !env.SUPABASE_URL.includes('example.supabase.co') &&
+  env.SUPABASE_ANON_KEY &&
+  env.SUPABASE_ANON_KEY !== 'default-anon-key' &&
+  env.SUPABASE_ANON_KEY !== 'example-anon-key'
+);
+
 // Public Supabase client (anon key)
 export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
 

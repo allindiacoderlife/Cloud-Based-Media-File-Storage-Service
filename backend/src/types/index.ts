@@ -5,12 +5,36 @@ export type FileStatus = 'uploading' | 'ready' | 'failed';
 export interface User {
   id: string;
   email: string;
-  full_name?: string;
-  avatar_url?: string;
+  password_hash?: string | null;
+  full_name?: string | null;
+  avatar_url?: string | null;
   storage_used_bytes: number;
   storage_quota_bytes: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserPublicProfile {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  storage_used_bytes: number;
+  storage_quota_bytes: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: string;
+}
+
+export interface JwtPayload {
+  userId: string;
+  email: string;
+  type?: 'access' | 'refresh';
 }
 
 export interface Folder {
