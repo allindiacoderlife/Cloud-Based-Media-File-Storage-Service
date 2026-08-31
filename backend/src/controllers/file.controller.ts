@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { storageService } from '../services/storage.service.js';
+import { fileRepository } from '../repositories/file.repository.js';
 import { initUploadSchema, completeUploadSchema, listFilesQuerySchema, updateFileSchema } from '../validators/file.validator.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
@@ -150,6 +151,38 @@ export class FileController {
       return sendSuccess(res, null, 'File deleted successfully');
     } catch (err: any) {
       return sendError(res, err.message || 'Failed to delete file', 400);
+    }
+  }
+
+  async listVersions(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) return sendError(res, 'Unauthorized', 401);
+
+      const file = await storageService.getFileById(userId, req.params.id);
+      if (!file) return sendError(res, 'File not found', 404);
+
+      const versions = await fileRepository.listVersions(req.params.id);
+      return sendSuccess(res, { versions }, 'File versions retrieved');
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to list file versions', 400);
+    }
+  }
+
+  async restoreVersion(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) return sendError(res, 'Unauthorized', 401);
+
+      const versionNumber = parseInt(req.params.versionNumber, 10);
+      if (isNaN(versionNumber)) return sendError(res, 'Invalid version number', 400);
+
+      const updated = await fileRepository.restoreVersion(req.params.id, versionNumber);
+      if (!updated) return sendError(res, 'Version not found', 404);
+
+      return sendSuccess(res, { file: updated }, `Restored file to version ${versionNumber}`);
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to restore file version', 400);
     }
   }
 }

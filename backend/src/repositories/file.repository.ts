@@ -272,7 +272,13 @@ export class FileRepository {
 
   async update(
     fileId: string,
-    updates: { name?: string; folder_id?: string | null }
+    updates: {
+      name?: string;
+      folder_id?: string | null;
+      current_version?: number;
+      storage_key?: string;
+      size_bytes?: number;
+    }
   ): Promise<FileRecord | null> {
     const now = new Date().toISOString();
 
@@ -281,6 +287,9 @@ export class FileRepository {
         const updatePayload: any = { updated_at: now };
         if (updates.name !== undefined) updatePayload.name = updates.name.trim();
         if (updates.folder_id !== undefined) updatePayload.folder_id = updates.folder_id;
+        if (updates.current_version !== undefined) updatePayload.current_version = updates.current_version;
+        if (updates.storage_key !== undefined) updatePayload.storage_key = updates.storage_key;
+        if (updates.size_bytes !== undefined) updatePayload.size_bytes = updates.size_bytes;
 
         const { data, error } = await supabaseAdmin
           .from('files')
@@ -301,6 +310,9 @@ export class FileRepository {
     if (existing) {
       if (updates.name !== undefined) existing.name = updates.name.trim();
       if (updates.folder_id !== undefined) existing.folder_id = updates.folder_id;
+      if (updates.current_version !== undefined) existing.current_version = updates.current_version;
+      if (updates.storage_key !== undefined) existing.storage_key = updates.storage_key;
+      if (updates.size_bytes !== undefined) existing.size_bytes = updates.size_bytes;
       existing.updated_at = now;
       return existing;
     }
@@ -375,6 +387,38 @@ export class FileRepository {
     return Array.from(devFallbackFiles.values())
       .filter((f) => f.owner_id === ownerId && !f.is_deleted && f.status === 'ready')
       .reduce((acc, curr) => acc + Number(curr.size_bytes || 0), 0);
+  }
+
+  async listVersions(fileId: string): Promise<FileVersion[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('file_versions')
+          .select('*')
+          .eq('file_id', fileId)
+          .order('version_number', { ascending: false });
+
+        if (!error && data) {
+          return data as FileVersion[];
+        }
+      } catch (err: any) {
+        logger.warn(`FileRepository.listVersions exception: ${err.message}`);
+      }
+    }
+
+    return devFallbackVersions.get(fileId) || [];
+  }
+
+  async restoreVersion(fileId: string, versionNumber: number): Promise<FileRecord | null> {
+    const versions = await this.listVersions(fileId);
+    const targetVersion = versions.find((v) => v.version_number === versionNumber);
+    if (!targetVersion) return null;
+
+    return this.update(fileId, {
+      current_version: targetVersion.version_number,
+      storage_key: targetVersion.storage_key,
+      size_bytes: targetVersion.size_bytes
+    });
   }
 }
 

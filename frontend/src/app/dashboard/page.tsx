@@ -34,33 +34,48 @@ import {
   Filter,
   ArrowUpDown,
   X,
-  Activity
+  Activity,
+  LayoutGrid,
+  List as ListIcon,
+  RotateCcw,
+  CheckSquare,
+  Square,
+  History,
+  Eye,
+  Sparkles,
+  PieChart
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { FileItem, Folder as FolderType } from '@/types';
+import { useToast } from '@/context/ToastContext';
 import UploadModal from '@/components/UploadModal';
 import CreateFolderModal from '@/components/CreateFolderModal';
 import RenameModal from '@/components/RenameModal';
 import MoveModal from '@/components/MoveModal';
 import ShareModal from '@/components/ShareModal';
+import PreviewModal from '@/components/PreviewModal';
+import VersionHistoryModal from '@/components/VersionHistoryModal';
 
 interface BreadcrumbItem {
   id: string | null;
   name: string;
 }
 
-type ViewMode = 'my-drive' | 'shared-with-me' | 'starred' | 'recent' | 'search';
+type ViewMode = 'my-drive' | 'shared-with-me' | 'starred' | 'recent' | 'trash' | 'search';
+type LayoutMode = 'grid' | 'list';
 type CategoryFilter = 'all' | 'document' | 'image' | 'video' | 'audio' | 'archive' | 'code';
 type SortOption = 'date-desc' | 'date-asc' | 'name-asc' | 'name-desc' | 'size-desc' | 'size-asc';
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, loading, logout, refreshUser } = useAuth();
+  const { success, error, info } = useToast();
 
   // Navigation & View States
   const [viewMode, setViewMode] = useState<ViewMode>('my-drive');
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('grid');
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: 'My Drive' }]);
 
@@ -70,6 +85,7 @@ export default function DashboardPage() {
   const [sharedItems, setSharedItems] = useState<{ folders: any[]; files: any[] }>({ folders: [], files: [] });
   const [starredItems, setStarredItems] = useState<{ folders: FolderType[]; files: FileItem[] }>({ folders: [], files: [] });
   const [recentData, setRecentData] = useState<{ recentFiles: FileItem[]; activities: any[] }>({ recentFiles: [], activities: [] });
+  const [trashItems, setTrashItems] = useState<{ folders: FolderType[]; files: FileItem[] }>({ folders: [], files: [] });
   const [searchResults, setSearchResults] = useState<{ folders: FolderType[]; files: FileItem[]; total: number }>({
     folders: [],
     files: [],
@@ -86,12 +102,24 @@ export default function DashboardPage() {
     files: []
   });
 
+  // Multi-Selection State
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
+
+  // Drag and Drop Upload State
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<
+    Array<{ id: string; name: string; size: number; progress: number; status: 'uploading' | 'done' | 'error' }>
+  >([]);
+
   const [loadingContents, setLoadingContents] = useState(true);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Modals state
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [versionFile, setVersionFile] = useState<FileItem | null>(null);
   const [renameItem, setRenameItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
   const [moveItem, setMoveItem] = useState<{
     id: string;
@@ -101,15 +129,15 @@ export default function DashboardPage() {
   } | null>(null);
   const [shareItem, setShareItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
 
-  // Active action states
+  // Active action menu states
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-
-  // Starred IDs cache for instant rendering
   const [starredIds, setStarredIds] = useState<Set<string>>(new Set());
 
   const fetchContents = useCallback(async () => {
     try {
       setLoadingContents(true);
+      setSelectedFileIds(new Set());
+      setSelectedFolderIds(new Set());
 
       if (viewMode === 'shared-with-me') {
         const res = await apiClient.get('/shares/shared-with-me');
@@ -125,6 +153,9 @@ export default function DashboardPage() {
       } else if (viewMode === 'recent') {
         const res = await apiClient.get('/activity/recent');
         setRecentData(res.data?.data || { recentFiles: [], activities: [] });
+      } else if (viewMode === 'trash') {
+        const res = await apiClient.get('/trash');
+        setTrashItems(res.data?.data || { folders: [], files: [] });
       } else if (viewMode === 'search') {
         const [field, order] = sortOption.split('-');
         const sortBy = field === 'date' ? 'updated_at' : field === 'size' ? 'size_bytes' : 'name';
@@ -134,14 +165,12 @@ export default function DashboardPage() {
         );
         setSearchResults(res.data?.data || { folders: [], files: [], total: 0 });
       } else if (currentFolderId) {
-        // Fetch specific folder
         const res = await apiClient.get(`/folders/${currentFolderId}`);
         const { breadcrumbs: bc, folders: subFolders, files: subFiles } = res.data.data;
         setBreadcrumbs(bc || [{ id: null, name: 'My Drive' }]);
         setFolders(subFolders || []);
         setFiles(subFiles || []);
       } else {
-        // Fetch root level
         const [foldersRes, filesRes] = await Promise.all([
           apiClient.get('/folders'),
           apiClient.get('/files?folderId=root')
@@ -165,7 +194,7 @@ export default function DashboardPage() {
     }
   }, [user, loading, router, fetchContents]);
 
-  // Load Starred status cache on initial mount
+  // Load Starred status cache
   useEffect(() => {
     if (user) {
       apiClient.get('/stars').then((res) => {
@@ -220,28 +249,68 @@ export default function DashboardPage() {
     return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
+  // Drag and drop multi-file handler
+  const handleDropFiles = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length === 0) return;
+
+    for (const file of droppedFiles) {
+      const queueId = Math.random().toString(36).substring(2, 9);
+      setUploadQueue((prev) => [
+        ...prev,
+        { id: queueId, name: file.name, size: file.size, progress: 20, status: 'uploading' }
+      ]);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      if (currentFolderId) formData.append('folderId', currentFolderId);
+
+      try {
+        setUploadQueue((prev) =>
+          prev.map((item) => (item.id === queueId ? { ...item, progress: 65 } : item))
+        );
+
+        await apiClient.post('/files/upload-direct', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+
+        setUploadQueue((prev) =>
+          prev.map((item) => (item.id === queueId ? { ...item, progress: 100, status: 'done' } : item))
+        );
+        success('Upload Complete', `"${file.name}" uploaded successfully`);
+      } catch (err: any) {
+        setUploadQueue((prev) =>
+          prev.map((item) => (item.id === queueId ? { ...item, status: 'error' } : item))
+        );
+        error('Upload Failed', `Could not upload "${file.name}": ${err.message}`);
+      }
+    }
+
+    await refreshUser();
+    fetchContents();
+  };
+
   const handleToggleStar = async (id: string, type: 'file' | 'folder', e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     try {
-      // Optimistic update
       const nextSet = new Set(starredIds);
-      if (nextSet.has(id)) {
-        nextSet.delete(id);
-      } else {
+      const willBeStarred = !nextSet.has(id);
+      if (willBeStarred) {
         nextSet.add(id);
+      } else {
+        nextSet.delete(id);
       }
       setStarredIds(nextSet);
 
-      await apiClient.post('/stars/toggle', {
-        resourceType: type,
-        resourceId: id
-      });
+      await apiClient.post('/stars/toggle', { resourceType: type, resourceId: id });
+      success(willBeStarred ? 'Added to Starred' : 'Removed from Starred');
 
-      if (viewMode === 'starred') {
-        fetchContents();
-      }
+      if (viewMode === 'starred') fetchContents();
     } catch (err: any) {
-      alert(`Failed to toggle favorite: ${err.message}`);
+      error('Favorite Failed', err.message);
       fetchContents();
     }
   };
@@ -252,14 +321,15 @@ export default function DashboardPage() {
       const { downloadUrl } = res.data.data;
       if (downloadUrl) {
         window.open(downloadUrl, '_blank');
+        info('Download Started', `Downloading "${file.name}"`);
       }
     } catch (err: any) {
-      alert(`Download error: ${err.message}`);
+      error('Download Error', err.message);
     }
   };
 
   const handleDeleteItem = async (id: string, type: 'file' | 'folder', name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+    if (!confirm(`Are you sure you want to move "${name}" to trash?`)) return;
 
     try {
       if (type === 'folder') {
@@ -267,10 +337,65 @@ export default function DashboardPage() {
       } else {
         await apiClient.delete(`/files/${id}`);
       }
+      success('Moved to Trash', `"${name}" was moved to Trash`);
       await refreshUser();
       fetchContents();
     } catch (err: any) {
-      alert(`Delete failed: ${err.message}`);
+      error('Delete Failed', err.message);
+    }
+  };
+
+  const handleRestoreItem = async (id: string, type: 'file' | 'folder', name: string) => {
+    try {
+      await apiClient.post(`/trash/restore/${type}/${id}`);
+      success('Restored', `"${name}" restored from Trash`);
+      fetchContents();
+    } catch (err: any) {
+      error('Restore Failed', err.message);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (!confirm('Are you sure you want to permanently delete all items in Trash? This cannot be undone.')) return;
+
+    try {
+      await apiClient.delete('/trash/empty');
+      success('Trash Emptied', 'All trash items have been permanently deleted');
+      await refreshUser();
+      fetchContents();
+    } catch (err: any) {
+      error('Empty Trash Failed', err.message);
+    }
+  };
+
+  // Bulk Actions
+  const handleBulkDelete = async () => {
+    if (!confirm(`Delete ${selectedFileIds.size + selectedFolderIds.size} selected items?`)) return;
+
+    try {
+      for (const id of selectedFolderIds) {
+        await apiClient.delete(`/folders/${id}`);
+      }
+      for (const id of selectedFileIds) {
+        await apiClient.delete(`/files/${id}`);
+      }
+      success('Bulk Delete', `Selected items moved to Trash`);
+      setSelectedFileIds(new Set());
+      setSelectedFolderIds(new Set());
+      await refreshUser();
+      fetchContents();
+    } catch (err: any) {
+      error('Bulk Action Failed', err.message);
+    }
+  };
+
+  const handleSelectAll = (filteredFiles: FileItem[], filteredFolders: FolderType[]) => {
+    if (selectedFileIds.size === filteredFiles.length && selectedFolderIds.size === filteredFolders.length) {
+      setSelectedFileIds(new Set());
+      setSelectedFolderIds(new Set());
+    } else {
+      setSelectedFileIds(new Set(filteredFiles.map((f) => f.id)));
+      setSelectedFolderIds(new Set(filteredFolders.map((f) => f.id)));
     }
   };
 
@@ -310,7 +435,6 @@ export default function DashboardPage() {
   const storageQuota = user.storage_quota_bytes || 5368709120;
   const usedPercentage = Math.min(Math.round((storageUsed / storageQuota) * 100), 100);
 
-  // Sorting logic for in-place views
   const applySort = (items: any[]) => {
     const sorted = [...items];
     const [field, order] = sortOption.split('-');
@@ -337,7 +461,6 @@ export default function DashboardPage() {
     return sorted;
   };
 
-  // Filter items by category
   const filterByCategory = (fileList: FileItem[]) => {
     if (categoryFilter === 'all') return fileList;
     return fileList.filter((f) => {
@@ -355,15 +478,87 @@ export default function DashboardPage() {
     });
   };
 
-  const displayedFolders = applySort(
-    categoryFilter === 'all' ? (viewMode === 'starred' ? starredItems.folders : folders) : []
-  );
-  const displayedFiles = applySort(
-    filterByCategory(viewMode === 'starred' ? starredItems.files : files)
-  );
+  const currentFolderList =
+    viewMode === 'starred'
+      ? starredItems.folders
+      : viewMode === 'trash'
+      ? trashItems.folders
+      : folders;
+
+  const currentFileList =
+    viewMode === 'starred'
+      ? starredItems.files
+      : viewMode === 'trash'
+      ? trashItems.files
+      : files;
+
+  const displayedFolders = applySort(categoryFilter === 'all' ? currentFolderList : []);
+  const displayedFiles = applySort(filterByCategory(currentFileList));
+
+  const totalSelected = selectedFileIds.size + selectedFolderIds.size;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDraggingOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setIsDraggingOver(false);
+      }}
+      onDrop={handleDropFiles}
+      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col relative"
+    >
+      {/* Full-Screen Drag & Drop Overlay */}
+      {isDraggingOver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-blue-950/80 backdrop-blur-md border-4 border-dashed border-blue-500 pointer-events-none animate-in fade-in">
+          <div className="flex flex-col items-center space-y-4 text-center">
+            <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-blue-600/30 text-blue-400 shadow-2xl animate-bounce">
+              <Upload className="h-12 w-12" />
+            </div>
+            <h2 className="text-2xl font-bold text-white">Drop files here to upload</h2>
+            <p className="text-sm text-blue-300">Files will be uploaded directly into this folder</p>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Multi-File Upload Queue Drawer */}
+      {uploadQueue.length > 0 && (
+        <div className="fixed bottom-6 left-6 z-40 w-80 rounded-2xl border border-slate-800 bg-slate-900/95 p-4 shadow-2xl backdrop-blur-xl">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+            <h4 className="text-xs font-bold text-white flex items-center space-x-2">
+              <Upload className="h-3.5 w-3.5 text-blue-400" />
+              <span>Uploading {uploadQueue.filter((q) => q.status === 'uploading').length} files</span>
+            </h4>
+            <button onClick={() => setUploadQueue([])} className="text-slate-400 hover:text-white">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="space-y-2.5 max-h-48 overflow-y-auto">
+            {uploadQueue.map((item) => (
+              <div key={item.id} className="rounded-xl bg-slate-950/80 p-2.5 border border-slate-800 text-xs">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-medium text-white truncate max-w-[170px]">{item.name}</span>
+                  <span className="text-[10px] text-slate-400">{formatBytes(item.size)}</span>
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      item.status === 'error'
+                        ? 'bg-rose-500'
+                        : item.status === 'done'
+                        ? 'bg-emerald-500'
+                        : 'bg-blue-500'
+                    }`}
+                    style={{ width: `${item.progress}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Modals */}
       <UploadModal
         isOpen={isUploadOpen}
@@ -393,6 +588,18 @@ export default function DashboardPage() {
         isOpen={shareItem !== null}
         onClose={() => setShareItem(null)}
         item={shareItem}
+      />
+      <PreviewModal
+        file={previewFile}
+        isOpen={previewFile !== null}
+        onClose={() => setPreviewFile(null)}
+        onShare={(f) => setShareItem({ id: f.id, name: f.name, type: 'file' })}
+      />
+      <VersionHistoryModal
+        file={versionFile}
+        isOpen={versionFile !== null}
+        onClose={() => setVersionFile(null)}
+        onRestoreSuccess={fetchContents}
       />
 
       {/* Top Navbar */}
@@ -466,7 +673,7 @@ export default function DashboardPage() {
                     <button
                       key={file.id}
                       onClick={() => {
-                        handleDownload(file);
+                        setPreviewFile(file);
                         setIsSearchingDropdown(false);
                       }}
                       className="flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
@@ -580,19 +787,37 @@ export default function DashboardPage() {
                 <Star className="h-4 w-4" />
                 <span>Starred</span>
               </button>
+
+              <button
+                onClick={() => {
+                  setViewMode('trash');
+                  setCurrentFolderId(null);
+                }}
+                className={`flex w-full items-center space-x-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all ${
+                  viewMode === 'trash'
+                    ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Trash</span>
+              </button>
             </div>
           </div>
 
           {/* Storage Meter Box */}
           <div className="glass-panel rounded-2xl p-4">
             <div className="flex items-center justify-between text-xs font-medium text-slate-300">
-              <span>Storage Usage</span>
-              <span className="text-blue-400">{usedPercentage}%</span>
+              <span className="flex items-center space-x-1.5">
+                <PieChart className="h-3.5 w-3.5 text-blue-400" />
+                <span>Storage</span>
+              </span>
+              <span className="text-blue-400 font-bold">{usedPercentage}%</span>
             </div>
-            <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+            <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-slate-800">
               <div
-                className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300"
-                style={{ width: `${Math.max(usedPercentage, 2)}%` }}
+                className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-300"
+                style={{ width: `${Math.max(usedPercentage, 3)}%` }}
               />
             </div>
             <p className="mt-2 text-[11px] text-slate-400">
@@ -603,8 +828,8 @@ export default function DashboardPage() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-8">
-          {/* Controls Bar: Category Filters & Sort Options */}
-          {(viewMode === 'my-drive' || viewMode === 'starred' || viewMode === 'search') && (
+          {/* Controls Bar: Category Filters, Sort Options & View Toggle */}
+          {(viewMode === 'my-drive' || viewMode === 'starred' || viewMode === 'search' || viewMode === 'trash') && (
             <div className="mb-6 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
               {/* Category Pills */}
               <div className="flex items-center flex-wrap gap-1.5 text-xs font-medium">
@@ -623,119 +848,146 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Sort By Dropdown */}
-              <div className="flex items-center space-x-2">
-                <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
-                <select
-                  value={sortOption}
-                  onChange={(e: any) => setSortOption(e.target.value)}
-                  className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300 focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="date-desc">Date modified (Newest)</option>
-                  <option value="date-asc">Date modified (Oldest)</option>
-                  <option value="name-asc">Name (A to Z)</option>
-                  <option value="name-desc">Name (Z to A)</option>
-                  <option value="size-desc">Size (Largest)</option>
-                  <option value="size-asc">Size (Smallest)</option>
-                </select>
+              {/* Layout Toggle & Sort */}
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+                  <select
+                    value={sortOption}
+                    onChange={(e: any) => setSortOption(e.target.value)}
+                    className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300 focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="date-desc">Date modified (Newest)</option>
+                    <option value="date-asc">Date modified (Oldest)</option>
+                    <option value="name-asc">Name (A to Z)</option>
+                    <option value="name-desc">Name (Z to A)</option>
+                    <option value="size-desc">Size (Largest)</option>
+                    <option value="size-asc">Size (Smallest)</option>
+                  </select>
+                </div>
+
+                {/* Grid / List Switcher */}
+                <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900/80 p-1">
+                  <button
+                    onClick={() => setLayoutMode('grid')}
+                    className={`rounded-lg p-1.5 transition-colors ${
+                      layoutMode === 'grid' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Grid view"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setLayoutMode('list')}
+                    className={`rounded-lg p-1.5 transition-colors ${
+                      layoutMode === 'list' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="List view"
+                  >
+                    <ListIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* VIEW: Search Results */}
-          {viewMode === 'search' ? (
-            <div>
-              <div className="flex items-center justify-between border-b border-slate-800 pb-5">
-                <div>
-                  <h1 className="text-xl font-bold text-white flex items-center space-x-2">
-                    <Search className="h-5 w-5 text-blue-400" />
-                    <span>Search results for &ldquo;{searchQuery}&rdquo;</span>
-                  </h1>
-                  <p className="text-xs text-slate-400 mt-1">Found {searchResults.total} matching items</p>
-                </div>
+          {/* Floating Bulk Action Bar */}
+          {totalSelected > 0 && (
+            <div className="mb-6 flex items-center justify-between rounded-2xl border border-blue-500/30 bg-blue-950/80 p-3.5 backdrop-blur-md animate-in slide-in-from-top-2">
+              <div className="flex items-center space-x-3 text-xs font-semibold text-white">
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-600 font-bold">
+                  {totalSelected}
+                </span>
+                <span>items selected</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center space-x-1.5 rounded-xl bg-rose-600/20 border border-rose-500/30 px-3 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-600 hover:text-white transition-all"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>Delete Selected</span>
+                </button>
                 <button
                   onClick={() => {
-                    setViewMode('my-drive');
-                    setSearchQuery('');
+                    setSelectedFileIds(new Set());
+                    setSelectedFolderIds(new Set());
                   }}
-                  className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-800"
                 >
-                  Back to Drive
+                  Cancel
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* VIEW: Trash */}
+          {viewMode === 'trash' ? (
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-800 pb-6">
+                <div>
+                  <h1 className="text-xl font-bold text-white flex items-center space-x-2">
+                    <Trash2 className="h-5 w-5 text-rose-400" />
+                    <span>Trash</span>
+                  </h1>
+                  <p className="text-xs text-slate-400 mt-1">Items here are soft-deleted and can be restored or permanently removed</p>
+                </div>
+                {(trashItems.folders.length > 0 || trashItems.files.length > 0) && (
+                  <button
+                    onClick={handleEmptyTrash}
+                    className="flex items-center space-x-2 rounded-xl bg-rose-600/20 border border-rose-500/30 px-4 py-2 text-xs font-bold text-rose-400 hover:bg-rose-600 hover:text-white transition-all"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Empty Trash</span>
+                  </button>
+                )}
               </div>
 
               <div className="mt-8 space-y-8">
-                {loadingContents ? (
-                  <div className="flex py-20 items-center justify-center text-slate-500">
-                    <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-500" />
-                    <span className="text-xs">Searching vault...</span>
-                  </div>
-                ) : searchResults.folders.length === 0 && searchResults.files.length === 0 ? (
+                {displayedFolders.length === 0 && displayedFiles.length === 0 ? (
                   <div className="py-20 text-center text-slate-500">
-                    <Search className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-                    <p className="text-sm">No matches found for &ldquo;{searchQuery}&rdquo;</p>
+                    <Trash2 className="mx-auto h-8 w-8 text-slate-600 mb-2" />
+                    <p className="text-sm">Trash is empty</p>
                   </div>
                 ) : (
-                  <>
-                    {searchResults.folders.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Folders</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                          {searchResults.folders.map((f) => (
-                            <div
-                              key={f.id}
-                              onClick={() => {
-                                setViewMode('my-drive');
-                                setCurrentFolderId(f.id);
-                              }}
-                              className="glass-card flex items-center justify-between rounded-2xl p-3.5 cursor-pointer"
-                            >
-                              <div className="flex items-center space-x-3 overflow-hidden">
-                                <Folder className="h-5 w-5 text-amber-400" />
-                                <span className="text-xs font-semibold text-white truncate">{f.name}</span>
-                              </div>
-                              <button onClick={(e) => handleToggleStar(f.id, 'folder', e)} className="p-1 text-slate-500 hover:text-amber-400">
-                                <Star className={`h-4 w-4 ${starredIds.has(f.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                              </button>
-                            </div>
-                          ))}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    {displayedFolders.map((f) => (
+                      <div key={f.id} className="glass-card flex items-center justify-between rounded-2xl p-4">
+                        <div className="flex items-center space-x-3 overflow-hidden">
+                          <Folder className="h-5 w-5 text-amber-400" />
+                          <span className="text-xs font-semibold text-white truncate">{f.name}</span>
                         </div>
+                        <button
+                          onClick={() => handleRestoreItem(f.id, 'folder', f.name)}
+                          className="flex items-center space-x-1 rounded-xl bg-blue-600/10 border border-blue-500/20 px-2.5 py-1 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          <span>Restore</span>
+                        </button>
                       </div>
-                    )}
+                    ))}
 
-                    {searchResults.files.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Files</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {searchResults.files.map((file) => (
-                            <div key={file.id} className="glass-card flex flex-col justify-between rounded-2xl p-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
-                                  {getFileIcon(file.mime_type)}
-                                </div>
-                                <button onClick={(e) => handleToggleStar(file.id, 'file', e)} className="p-1 text-slate-500 hover:text-amber-400">
-                                  <Star className={`h-4 w-4 ${starredIds.has(file.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                                </button>
-                              </div>
-                              <div className="mt-3">
-                                <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
-                                <p className="text-[11px] text-slate-400 mt-0.5">{formatBytes(file.size_bytes)}</p>
-                              </div>
-                              <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
-                                <button
-                                  onClick={() => handleDownload(file)}
-                                  className="flex items-center space-x-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                  <span>Download</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
+                    {displayedFiles.map((file) => (
+                      <div key={file.id} className="glass-card flex flex-col justify-between rounded-2xl p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
+                            {getFileIcon(file.mime_type)}
+                          </div>
+                          <button
+                            onClick={() => handleRestoreItem(file.id, 'file', file.name)}
+                            className="flex items-center space-x-1 rounded-xl bg-blue-600/10 border border-blue-500/20 px-2.5 py-1 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            <span>Restore</span>
+                          </button>
+                        </div>
+                        <div className="mt-3">
+                          <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{formatBytes(file.size_bytes)}</p>
                         </div>
                       </div>
-                    )}
-                  </>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -751,12 +1003,15 @@ export default function DashboardPage() {
               </div>
 
               <div className="mt-8 space-y-8">
-                {/* Recent Files Grid */}
                 <div>
                   <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Recently Updated Files</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {recentData.recentFiles.slice(0, 8).map((file) => (
-                      <div key={file.id} className="glass-card flex flex-col justify-between rounded-2xl p-4">
+                      <div
+                        key={file.id}
+                        onClick={() => setPreviewFile(file)}
+                        className="glass-card flex flex-col justify-between rounded-2xl p-4 cursor-pointer"
+                      >
                         <div className="flex items-center justify-between">
                           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
                             {getFileIcon(file.mime_type)}
@@ -769,21 +1024,11 @@ export default function DashboardPage() {
                           <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
                           <p className="text-[11px] text-slate-400 mt-0.5">{formatDate(file.updated_at)}</p>
                         </div>
-                        <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
-                          <button
-                            onClick={() => handleDownload(file)}
-                            className="flex items-center space-x-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
-                          >
-                            <Download className="h-3.5 w-3.5" />
-                            <span>Download</span>
-                          </button>
-                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Audit Activity Timeline */}
                 {recentData.activities.length > 0 && (
                   <div className="pt-4">
                     <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Audit Activity Log</h2>
@@ -803,213 +1048,71 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-          ) : viewMode === 'starred' ? (
-            /* VIEW: Starred Items */
-            <div>
-              <div className="border-b border-slate-800 pb-6">
-                <h1 className="text-xl font-bold text-white flex items-center space-x-2">
-                  <Star className="h-5 w-5 text-amber-400 fill-amber-400" />
-                  <span>Starred Items</span>
-                </h1>
-                <p className="text-xs text-slate-400 mt-1">Favorites you have marked for quick access</p>
-              </div>
-
-              <div className="mt-8 space-y-8">
-                {displayedFolders.length === 0 && displayedFiles.length === 0 ? (
-                  <div className="py-20 text-center text-slate-500">
-                    <Star className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-                    <p className="text-sm">No starred items yet. Click the star icon on any file or folder to add it here.</p>
-                  </div>
-                ) : (
-                  <>
-                    {displayedFolders.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Starred Folders</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                          {displayedFolders.map((f) => (
-                            <div
-                              key={f.id}
-                              onClick={() => {
-                                setViewMode('my-drive');
-                                setCurrentFolderId(f.id);
-                              }}
-                              className="glass-card flex items-center justify-between rounded-2xl p-3.5 cursor-pointer"
-                            >
-                              <div className="flex items-center space-x-3 overflow-hidden">
-                                <Folder className="h-5 w-5 text-amber-400" />
-                                <span className="text-xs font-semibold text-white truncate">{f.name}</span>
-                              </div>
-                              <button onClick={(e) => handleToggleStar(f.id, 'folder', e)} className="p-1 text-amber-400">
-                                <Star className="h-4 w-4 fill-amber-400" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {displayedFiles.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Starred Files</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {displayedFiles.map((file) => (
-                            <div key={file.id} className="glass-card flex flex-col justify-between rounded-2xl p-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
-                                  {getFileIcon(file.mime_type)}
-                                </div>
-                                <button onClick={(e) => handleToggleStar(file.id, 'file', e)} className="p-1 text-amber-400">
-                                  <Star className="h-4 w-4 fill-amber-400" />
-                                </button>
-                              </div>
-                              <div className="mt-3">
-                                <h4 className="text-sm font-semibold text-white truncate">{file.name}</h4>
-                                <p className="text-[11px] text-slate-400 mt-0.5">{formatBytes(file.size_bytes)}</p>
-                              </div>
-                              <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
-                                <button
-                                  onClick={() => handleDownload(file)}
-                                  className="flex items-center space-x-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                  <span>Download</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          ) : viewMode === 'shared-with-me' ? (
-            /* VIEW: Shared With Me */
-            <div>
-              <div className="border-b border-slate-800 pb-6">
-                <h1 className="text-xl font-bold text-white flex items-center space-x-2">
-                  <Share2 className="h-5 w-5 text-blue-400" />
-                  <span>Shared with me</span>
-                </h1>
-                <p className="text-xs text-slate-400 mt-1">Files and folders other users have shared with you</p>
-              </div>
-
-              <div className="mt-8 space-y-8">
-                {loadingContents ? (
-                  <div className="flex py-20 items-center justify-center text-slate-500">
-                    <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-500" />
-                    <span className="text-xs">Loading shared items...</span>
-                  </div>
-                ) : sharedItems.folders.length === 0 && sharedItems.files.length === 0 ? (
-                  <div className="py-20 text-center text-slate-500">
-                    <Users className="mx-auto h-8 w-8 text-slate-600 mb-2" />
-                    <p className="text-sm">No items shared with you yet.</p>
-                  </div>
-                ) : (
-                  <>
-                    {sharedItems.folders.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Shared Folders</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                          {sharedItems.folders.map((item) => (
-                            <div key={item.shareId} className="glass-card flex items-center justify-between rounded-2xl p-4">
-                              <div className="flex items-center space-x-3 overflow-hidden">
-                                <Folder className="h-5 w-5 text-amber-400" />
-                                <div className="truncate">
-                                  <span className="text-xs font-semibold text-white truncate block">{item.resource.name}</span>
-                                  <span className="text-[10px] text-slate-400">Owner: {item.owner.fullName || item.owner.email}</span>
-                                </div>
-                              </div>
-                              <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                                {item.role}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {sharedItems.files.length > 0 && (
-                      <div>
-                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">Shared Files</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {sharedItems.files.map((item) => (
-                            <div key={item.shareId} className="glass-card flex flex-col justify-between rounded-2xl p-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
-                                  {getFileIcon(item.resource.mime_type)}
-                                </div>
-                                <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400 border border-blue-500/20">
-                                  {item.role}
-                                </span>
-                              </div>
-                              <div className="mt-3">
-                                <h4 className="text-sm font-semibold text-white truncate">{item.resource.name}</h4>
-                                <p className="text-[11px] text-slate-400 mt-0.5">{formatBytes(item.resource.size_bytes)}</p>
-                              </div>
-                              <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
-                                <button
-                                  onClick={() => handleDownload(item.resource)}
-                                  className="flex items-center space-x-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
-                                >
-                                  <Download className="h-3.5 w-3.5" />
-                                  <span>Download</span>
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
           ) : (
-            /* VIEW: My Drive */
+            /* VIEW: My Drive, Starred, Shared & Search */
             <>
               {/* Header Actions & Breadcrumb Path */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+              <div className="flex flex-col sm:flex-row items-start sm:sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
                 <div className="flex items-center flex-wrap gap-1.5 text-sm">
-                  {breadcrumbs.map((bc, idx) => {
-                    const isLast = idx === breadcrumbs.length - 1;
-                    return (
-                      <React.Fragment key={bc.id || 'root'}>
-                        <button
-                          onClick={() => setCurrentFolderId(bc.id)}
-                          className={`font-semibold transition-colors hover:text-blue-400 ${
-                            isLast ? 'text-white text-lg font-bold' : 'text-slate-400'
-                          }`}
-                        >
-                          {bc.name}
-                        </button>
-                        {!isLast && <ChevronRight className="h-4 w-4 text-slate-600 flex-shrink-0" />}
-                      </React.Fragment>
-                    );
-                  })}
+                  {viewMode === 'starred' ? (
+                    <h1 className="text-xl font-bold text-white flex items-center space-x-2">
+                      <Star className="h-5 w-5 text-amber-400 fill-amber-400" />
+                      <span>Starred Items</span>
+                    </h1>
+                  ) : viewMode === 'shared-with-me' ? (
+                    <h1 className="text-xl font-bold text-white flex items-center space-x-2">
+                      <Share2 className="h-5 w-5 text-blue-400" />
+                      <span>Shared with me</span>
+                    </h1>
+                  ) : viewMode === 'search' ? (
+                    <h1 className="text-xl font-bold text-white flex items-center space-x-2">
+                      <Search className="h-5 w-5 text-blue-400" />
+                      <span>Search: &ldquo;{searchQuery}&rdquo;</span>
+                    </h1>
+                  ) : (
+                    breadcrumbs.map((bc, idx) => {
+                      const isLast = idx === breadcrumbs.length - 1;
+                      return (
+                        <React.Fragment key={bc.id || 'root'}>
+                          <button
+                            onClick={() => setCurrentFolderId(bc.id)}
+                            className={`font-semibold transition-colors hover:text-blue-400 ${
+                              isLast ? 'text-white text-lg font-bold' : 'text-slate-400'
+                            }`}
+                          >
+                            {bc.name}
+                          </button>
+                          {!isLast && <ChevronRight className="h-4 w-4 text-slate-600 flex-shrink-0" />}
+                        </React.Fragment>
+                      );
+                    })
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-3">
-                  <button
-                    onClick={() => setIsCreateFolderOpen(true)}
-                    className="flex items-center space-x-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-slate-800 hover:text-white"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>New Folder</span>
-                  </button>
+                  {viewMode === 'my-drive' && (
+                    <>
+                      <button
+                        onClick={() => setIsCreateFolderOpen(true)}
+                        className="flex items-center space-x-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-slate-800 hover:text-white"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <span>New Folder</span>
+                      </button>
 
-                  <button
-                    onClick={() => setIsUploadOpen(true)}
-                    className="flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500"
-                  >
-                    <Upload className="h-4 w-4" />
-                    <span>Upload File</span>
-                  </button>
+                      <button
+                        onClick={() => setIsUploadOpen(true)}
+                        className="flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500"
+                      >
+                        <Upload className="h-4 w-4" />
+                        <span>Upload File</span>
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* Drive Content */}
+              {/* Drive Content Area */}
               <div className="mt-8 space-y-8">
                 {loadingContents ? (
                   <div className="flex py-20 items-center justify-center text-slate-500">
@@ -1021,240 +1124,357 @@ export default function DashboardPage() {
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-400 mb-4">
                       <FolderOpen className="h-8 w-8" />
                     </div>
-                    <h3 className="text-base font-semibold text-white">This folder is empty</h3>
+                    <h3 className="text-base font-semibold text-white">No items found</h3>
                     <p className="mt-1 max-w-sm text-xs text-slate-400">
-                      Drop files here or click below to upload items into this directory.
+                      Drop files anywhere on the screen or click upload to add items.
                     </p>
                   </div>
+                ) : layoutMode === 'list' ? (
+                  /* LIST VIEW */
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+                    <div className="grid grid-cols-12 gap-4 border-b border-slate-800 px-4 py-3 text-xs font-semibold text-slate-400">
+                      <div className="col-span-6 flex items-center space-x-3">
+                        <button
+                          onClick={() => handleSelectAll(displayedFiles, displayedFolders)}
+                          className="text-slate-400 hover:text-white"
+                        >
+                          {totalSelected > 0 ? <CheckSquare className="h-4 w-4 text-blue-400" /> : <Square className="h-4 w-4" />}
+                        </button>
+                        <span>Name</span>
+                      </div>
+                      <div className="col-span-2 hidden md:block">Type</div>
+                      <div className="col-span-2 hidden sm:block">Size</div>
+                      <div className="col-span-2 text-right">Actions</div>
+                    </div>
+
+                    {/* Folders List */}
+                    {displayedFolders.map((f) => {
+                      const isSelected = selectedFolderIds.has(f.id);
+                      return (
+                        <div
+                          key={f.id}
+                          onDoubleClick={() => setCurrentFolderId(f.id)}
+                          className={`grid grid-cols-12 gap-4 items-center px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors ${
+                            isSelected ? 'bg-blue-600/10' : ''
+                          }`}
+                        >
+                          <div className="col-span-6 flex items-center space-x-3 overflow-hidden cursor-pointer">
+                            <button
+                              onClick={() => {
+                                const s = new Set(selectedFolderIds);
+                                if (s.has(f.id)) s.delete(f.id);
+                                else s.add(f.id);
+                                setSelectedFolderIds(s);
+                              }}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              {isSelected ? <CheckSquare className="h-4 w-4 text-blue-400" /> : <Square className="h-4 w-4" />}
+                            </button>
+                            <Folder className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                            <span onClick={() => setCurrentFolderId(f.id)} className="text-xs font-semibold text-white truncate">
+                              {f.name}
+                            </span>
+                          </div>
+                          <div className="col-span-2 hidden md:block text-xs text-slate-400">Folder</div>
+                          <div className="col-span-2 hidden sm:block text-xs text-slate-400">—</div>
+                          <div className="col-span-2 flex items-center justify-end space-x-2">
+                            <button onClick={(e) => handleToggleStar(f.id, 'folder', e)} className="p-1 text-slate-500 hover:text-amber-400">
+                              <Star className={`h-4 w-4 ${starredIds.has(f.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Files List */}
+                    {displayedFiles.map((file) => {
+                      const isSelected = selectedFileIds.has(file.id);
+                      return (
+                        <div
+                          key={file.id}
+                          className={`grid grid-cols-12 gap-4 items-center px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors ${
+                            isSelected ? 'bg-blue-600/10' : ''
+                          }`}
+                        >
+                          <div className="col-span-6 flex items-center space-x-3 overflow-hidden cursor-pointer" onClick={() => setPreviewFile(file)}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const s = new Set(selectedFileIds);
+                                if (s.has(file.id)) s.delete(file.id);
+                                else s.add(file.id);
+                                setSelectedFileIds(s);
+                              }}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              {isSelected ? <CheckSquare className="h-4 w-4 text-blue-400" /> : <Square className="h-4 w-4" />}
+                            </button>
+                            {getFileIcon(file.mime_type)}
+                            <span className="text-xs font-semibold text-white truncate">{file.name}</span>
+                          </div>
+                          <div className="col-span-2 hidden md:block text-[11px] text-slate-400 truncate">{file.mime_type}</div>
+                          <div className="col-span-2 hidden sm:block text-xs text-slate-400">{formatBytes(file.size_bytes)}</div>
+                          <div className="col-span-2 flex items-center justify-end space-x-2">
+                            <button onClick={() => setPreviewFile(file)} className="p-1 text-slate-400 hover:text-white" title="Preview">
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => setVersionFile(file)} className="p-1 text-slate-400 hover:text-indigo-400" title="Version History">
+                              <History className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => handleDownload(file)} className="p-1 text-slate-400 hover:text-blue-400" title="Download">
+                              <Download className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
+                  /* GRID VIEW */
                   <>
-                    {/* Folders */}
+                    {/* Folders Grid */}
                     {displayedFolders.length > 0 && (
                       <div>
                         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
                           Folders ({displayedFolders.length})
                         </h2>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-                          {displayedFolders.map((f) => (
-                            <div
-                              key={f.id}
-                              onDoubleClick={() => setCurrentFolderId(f.id)}
-                              className="glass-card group relative flex items-center justify-between rounded-2xl p-3.5 cursor-pointer select-none transition-all"
-                            >
+                          {displayedFolders.map((f) => {
+                            const isSelected = selectedFolderIds.has(f.id);
+                            return (
                               <div
-                                onClick={() => setCurrentFolderId(f.id)}
-                                className="flex items-center space-x-3 overflow-hidden flex-1"
+                                key={f.id}
+                                onDoubleClick={() => setCurrentFolderId(f.id)}
+                                className={`glass-card group relative flex items-center justify-between rounded-2xl p-3.5 cursor-pointer select-none transition-all ${
+                                  isSelected ? 'ring-2 ring-blue-500 bg-blue-600/10' : ''
+                                }`}
                               >
-                                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
-                                  <Folder className="h-5 w-5 fill-amber-400/20" />
+                                <div onClick={() => setCurrentFolderId(f.id)} className="flex items-center space-x-3 overflow-hidden flex-1">
+                                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
+                                    <Folder className="h-5 w-5 fill-amber-400/20" />
+                                  </div>
+                                  <span className="text-xs font-semibold text-white truncate" title={f.name}>
+                                    {f.name}
+                                  </span>
                                 </div>
-                                <span className="text-xs font-semibold text-white truncate" title={f.name}>
-                                  {f.name}
-                                </span>
-                              </div>
 
-                              <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  onClick={(e) => handleToggleStar(f.id, 'folder', e)}
-                                  className="p-1.5 text-slate-500 hover:text-amber-400 transition-colors"
-                                  title="Star folder"
-                                >
-                                  <Star className={`h-4 w-4 ${starredIds.has(f.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                                </button>
-
-                                <div className="relative">
+                                <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
                                   <button
-                                    onClick={() => setActiveMenuId(activeMenuId === f.id ? null : f.id)}
-                                    className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                                    onClick={(e) => handleToggleStar(f.id, 'folder', e)}
+                                    className="p-1.5 text-slate-500 hover:text-amber-400 transition-colors"
                                   >
-                                    <MoreVertical className="h-4 w-4" />
+                                    <Star className={`h-4 w-4 ${starredIds.has(f.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
                                   </button>
 
-                                  {activeMenuId === f.id && (
-                                    <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
-                                      <button
-                                        onClick={() => {
-                                          setCurrentFolderId(f.id);
-                                          setActiveMenuId(null);
-                                        }}
-                                        className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                      >
-                                        <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
-                                        <span>Open</span>
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setShareItem({ id: f.id, name: f.name, type: 'folder' });
-                                          setActiveMenuId(null);
-                                        }}
-                                        className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                      >
-                                        <Share2 className="h-3.5 w-3.5 text-blue-400" />
-                                        <span>Share</span>
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setRenameItem({ id: f.id, name: f.name, type: 'folder' });
-                                          setActiveMenuId(null);
-                                        }}
-                                        className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                      >
-                                        <Edit3 className="h-3.5 w-3.5 text-amber-400" />
-                                        <span>Rename</span>
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setMoveItem({
-                                            id: f.id,
-                                            name: f.name,
-                                            type: 'folder',
-                                            currentParentId: f.parent_id
-                                          });
-                                          setActiveMenuId(null);
-                                        }}
-                                        className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                      >
-                                        <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
-                                        <span>Move</span>
-                                      </button>
-                                      <div className="my-1 border-t border-slate-800" />
-                                      <button
-                                        onClick={() => {
-                                          setActiveMenuId(null);
-                                          handleDeleteItem(f.id, 'folder', f.name);
-                                        }}
-                                        className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                        <span>Delete</span>
-                                      </button>
-                                    </div>
-                                  )}
+                                  <div className="relative">
+                                    <button
+                                      onClick={() => setActiveMenuId(activeMenuId === f.id ? null : f.id)}
+                                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </button>
+
+                                    {activeMenuId === f.id && (
+                                      <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
+                                        <button
+                                          onClick={() => {
+                                            setCurrentFolderId(f.id);
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                        >
+                                          <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
+                                          <span>Open</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setShareItem({ id: f.id, name: f.name, type: 'folder' });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                        >
+                                          <Share2 className="h-3.5 w-3.5 text-blue-400" />
+                                          <span>Share</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setRenameItem({ id: f.id, name: f.name, type: 'folder' });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                        >
+                                          <Edit3 className="h-3.5 w-3.5 text-amber-400" />
+                                          <span>Rename</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setMoveItem({ id: f.id, name: f.name, type: 'folder', currentParentId: f.parent_id });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                        >
+                                          <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
+                                          <span>Move</span>
+                                        </button>
+                                        <div className="my-1 border-t border-slate-800" />
+                                        <button
+                                          onClick={() => {
+                                            setActiveMenuId(null);
+                                            handleDeleteItem(f.id, 'folder', f.name);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          <span>Delete</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
 
-                    {/* Files */}
+                    {/* Files Grid */}
                     {displayedFiles.length > 0 && (
                       <div>
                         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
                           Files ({displayedFiles.length})
                         </h2>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {displayedFiles.map((file) => (
-                            <div
-                              key={file.id}
-                              className="glass-card group relative flex flex-col justify-between rounded-2xl p-4 transition-all"
-                            >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/80 border border-slate-800">
-                                    {getFileIcon(file.mime_type)}
-                                  </div>
+                          {displayedFiles.map((file) => {
+                            const isSelected = selectedFileIds.has(file.id);
+                            return (
+                              <div
+                                key={file.id}
+                                onClick={() => setPreviewFile(file)}
+                                className={`glass-card group relative flex flex-col justify-between rounded-2xl p-4 transition-all cursor-pointer ${
+                                  isSelected ? 'ring-2 ring-blue-500 bg-blue-600/10' : ''
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/80 border border-slate-800">
+                                      {getFileIcon(file.mime_type)}
+                                    </div>
 
-                                  <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      onClick={(e) => handleToggleStar(file.id, 'file', e)}
-                                      className="p-1.5 text-slate-500 hover:text-amber-400 transition-colors"
-                                      title="Star file"
-                                    >
-                                      <Star className={`h-4 w-4 ${starredIds.has(file.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
-                                    </button>
-
-                                    <div className="relative">
+                                    <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
                                       <button
-                                        onClick={() => setActiveMenuId(activeMenuId === file.id ? null : file.id)}
-                                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                                        onClick={(e) => handleToggleStar(file.id, 'file', e)}
+                                        className="p-1.5 text-slate-500 hover:text-amber-400 transition-colors"
                                       >
-                                        <MoreVertical className="h-4 w-4" />
+                                        <Star className={`h-4 w-4 ${starredIds.has(file.id) ? 'fill-amber-400 text-amber-400' : ''}`} />
                                       </button>
 
-                                      {activeMenuId === file.id && (
-                                        <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
-                                          <button
-                                            onClick={() => {
-                                              setActiveMenuId(null);
-                                              handleDownload(file);
-                                            }}
-                                            className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                          >
-                                            <Download className="h-3.5 w-3.5 text-blue-400" />
-                                            <span>Download</span>
-                                          </button>
-                                          <button
-                                            onClick={() => {
-                                              setShareItem({ id: file.id, name: file.name, type: 'file' });
-                                              setActiveMenuId(null);
-                                            }}
-                                            className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                          >
-                                            <Share2 className="h-3.5 w-3.5 text-blue-400" />
-                                            <span>Share</span>
-                                          </button>
-                                          <button
-                                            onClick={() => {
-                                              setRenameItem({ id: file.id, name: file.name, type: 'file' });
-                                              setActiveMenuId(null);
-                                            }}
-                                            className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                          >
-                                            <Edit3 className="h-3.5 w-3.5 text-amber-400" />
-                                            <span>Rename</span>
-                                          </button>
-                                          <button
-                                            onClick={() => {
-                                              setMoveItem({
-                                                id: file.id,
-                                                name: file.name,
-                                                type: 'file',
-                                                currentParentId: file.folder_id
-                                              });
-                                              setActiveMenuId(null);
-                                            }}
-                                            className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
-                                          >
-                                            <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
-                                            <span>Move</span>
-                                          </button>
-                                          <div className="my-1 border-t border-slate-800" />
-                                          <button
-                                            onClick={() => {
-                                              setActiveMenuId(null);
-                                              handleDeleteItem(file.id, 'file', file.name);
-                                            }}
-                                            className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                            <span>Delete</span>
-                                          </button>
-                                        </div>
-                                      )}
+                                      <div className="relative">
+                                        <button
+                                          onClick={() => setActiveMenuId(activeMenuId === file.id ? null : file.id)}
+                                          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+                                        >
+                                          <MoreVertical className="h-4 w-4" />
+                                        </button>
+
+                                        {activeMenuId === file.id && (
+                                          <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
+                                            <button
+                                              onClick={() => {
+                                                setActiveMenuId(null);
+                                                setPreviewFile(file);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <Eye className="h-3.5 w-3.5 text-blue-400" />
+                                              <span>Preview</span>
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setActiveMenuId(null);
+                                                setVersionFile(file);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <History className="h-3.5 w-3.5 text-indigo-400" />
+                                              <span>Versions</span>
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setActiveMenuId(null);
+                                                handleDownload(file);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <Download className="h-3.5 w-3.5 text-emerald-400" />
+                                              <span>Download</span>
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setShareItem({ id: file.id, name: file.name, type: 'file' });
+                                                setActiveMenuId(null);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <Share2 className="h-3.5 w-3.5 text-blue-400" />
+                                              <span>Share</span>
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setRenameItem({ id: file.id, name: file.name, type: 'file' });
+                                                setActiveMenuId(null);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <Edit3 className="h-3.5 w-3.5 text-amber-400" />
+                                              <span>Rename</span>
+                                            </button>
+                                            <button
+                                              onClick={() => {
+                                                setMoveItem({ id: file.id, name: file.name, type: 'file', currentParentId: file.folder_id });
+                                                setActiveMenuId(null);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                                            >
+                                              <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
+                                              <span>Move</span>
+                                            </button>
+                                            <div className="my-1 border-t border-slate-800" />
+                                            <button
+                                              onClick={() => {
+                                                setActiveMenuId(null);
+                                                handleDeleteItem(file.id, 'file', file.name);
+                                              }}
+                                              className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-rose-400 hover:bg-rose-500/10"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              <span>Delete</span>
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
+                                  </div>
+
+                                  <div className="mt-3">
+                                    <h4 className="text-sm font-semibold text-white truncate" title={file.name}>
+                                      {file.name}
+                                    </h4>
+                                    <p className="text-[11px] text-slate-400 mt-0.5">
+                                      {formatBytes(file.size_bytes)} • {formatDate(file.created_at)}
+                                    </p>
                                   </div>
                                 </div>
 
-                                <div className="mt-3">
-                                  <h4 className="text-sm font-semibold text-white truncate" title={file.name}>
-                                    {file.name}
-                                  </h4>
-                                  <p className="text-[11px] text-slate-400 mt-0.5">
-                                    {formatBytes(file.size_bytes)} • {formatDate(file.created_at)}
-                                  </p>
+                                <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+                                  <span className="truncate max-w-[150px]">{file.mime_type}</span>
+                                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-400 font-medium text-[10px] border border-emerald-500/20">
+                                    v{file.current_version}
+                                  </span>
                                 </div>
                               </div>
-
-                              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-                                <span className="truncate max-w-[150px]">{file.mime_type}</span>
-                                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-400 font-medium text-[10px] border border-emerald-500/20">
-                                  v{file.current_version}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}

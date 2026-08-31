@@ -10,12 +10,13 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx src/tests/auth-test.ts && tsx src/tests/storage-test.ts && tsx src/tests/folders-files-test.ts && tsx src/tests/sharing-test.ts && tsx src/tests/search-test.ts",
+    "test": "tsx src/tests/auth-test.ts && tsx src/tests/storage-test.ts && tsx src/tests/folders-files-test.ts && tsx src/tests/sharing-test.ts && tsx src/tests/search-test.ts && tsx src/tests/trash-versions-test.ts",
     "test:auth": "tsx src/tests/auth-test.ts",
     "test:storage": "tsx src/tests/storage-test.ts",
     "test:folders": "tsx src/tests/folders-files-test.ts",
     "test:sharing": "tsx src/tests/sharing-test.ts",
-    "test:search": "tsx src/tests/search-test.ts"
+    "test:search": "tsx src/tests/search-test.ts",
+    "test:trash": "tsx src/tests/trash-versions-test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

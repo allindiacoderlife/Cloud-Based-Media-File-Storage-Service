@@ -29,4 +29,8 @@ router.get('/:id/download', (req, res) => fileController.getDownloadUrl(req, res
 router.patch('/:id', (req, res) => fileController.updateFile(req, res));
 router.delete('/:id', (req, res) => fileController.deleteFile(req, res));
 
+// File versions
+router.get('/:id/versions', (req, res) => fileController.listVersions(req, res));
+router.post('/:id/versions/:versionNumber/restore', (req, res) => fileController.restoreVersion(req, res));
+
 export const fileRoutes = router;
