@@ -17,7 +17,6 @@ pids
 *.pid.lock
 
 # Dependency directories
-docs
 node_modules/
 jspm_packages/
 
