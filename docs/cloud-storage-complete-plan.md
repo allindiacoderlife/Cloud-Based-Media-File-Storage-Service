@@ -2083,15 +2083,15 @@ Before production:
 
 ## Day 14 — Production Polish
 
-- [ ] Responsive UI
-- [ ] Accessibility
-- [ ] Security review
-- [ ] Error handling
-- [ ] Performance review
-- [ ] Frontend deployment
-- [ ] Final bug fixes
-- [ ] README
-- [ ] Demo preparation
+- [x] Responsive UI
+- [x] Accessibility
+- [x] Security review
+- [x] Error handling
+- [x] Performance review
+- [x] Frontend deployment
+- [x] Final bug fixes
+- [x] README
+- [x] Demo preparation
 
 ---
 
@@ -2099,32 +2099,32 @@ Before production:
 
 The MVP is complete when all of the following work end-to-end:
 
-- [ ] Register/login/logout
-- [ ] Protected dashboard
-- [ ] Create folders
-- [ ] Nested folders
-- [ ] Upload files
-- [ ] Upload progress
-- [ ] List files
-- [ ] Download files
-- [ ] Rename
-- [ ] Move
-- [ ] Delete
-- [ ] Trash
-- [ ] Restore
-- [ ] Viewer sharing
-- [ ] Editor sharing
-- [ ] Public links
-- [ ] Expiry
-- [ ] Search
-- [ ] Sorting
-- [ ] Stars
-- [ ] Recent
-- [ ] Secure signed URLs
-- [ ] API authorization
-- [ ] Storage authorization
-- [ ] Basic tests
-- [ ] Production deployment
+- [x] Register/login/logout
+- [x] Protected dashboard
+- [x] Create folders
+- [x] Nested folders
+- [x] Upload files
+- [x] Upload progress
+- [x] List files
+- [x] Download files
+- [x] Rename
+- [x] Move
+- [x] Delete
+- [x] Trash
+- [x] Restore
+- [x] Viewer sharing
+- [x] Editor sharing
+- [x] Public links
+- [x] Expiry
+- [x] Search
+- [x] Sorting
+- [x] Stars
+- [x] Recent
+- [x] Secure signed URLs
+- [x] API authorization
+- [x] Storage authorization
+- [x] Basic tests
+- [x] Production deployment
 
 ---
 
