@@ -2,6 +2,7 @@
   "name": "cloud-storage-backend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "REST API Backend for Cloud-Based Media Storage Service",
   "main": "dist/server.js",
   "scripts": {
