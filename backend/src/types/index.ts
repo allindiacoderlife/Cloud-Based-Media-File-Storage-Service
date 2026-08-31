@@ -110,8 +110,9 @@ export interface ActivityLog {
   id: string;
   user_id: string;
   action: string;
-  resource_type: ResourceType;
-  resource_id: string;
+  resource_type?: ResourceType | null;
+  resource_id?: string | null;
+  details?: Record<string, any> | null;
   metadata?: Record<string, any>;
   ip_address?: string | null;
   created_at: string;

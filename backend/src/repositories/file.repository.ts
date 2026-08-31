@@ -4,8 +4,8 @@ import { logger } from '../utils/logger.js';
 import crypto from 'crypto';
 
 // In-memory fallback map for offline development/tests
-const devFallbackFiles = new Map<string, FileRecord>();
-const devFallbackVersions = new Map<string, FileVersion[]>();
+export const devFallbackFiles = new Map<string, FileRecord>();
+export const devFallbackVersions = new Map<string, FileVersion[]>();
 
 export class FileRepository {
   async createPlaceholder(file: {
