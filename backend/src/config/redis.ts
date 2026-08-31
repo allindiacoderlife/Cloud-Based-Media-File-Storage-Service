@@ -6,21 +6,29 @@ let redisClient: Redis | null = null;
 
 export const getRedisClient = (): Redis => {
   if (!redisClient) {
-    redisClient = new Redis({
-      host: env.REDIS_HOST,
-      port: env.REDIS_PORT,
-      password: env.REDIS_PASSWORD || undefined,
-      tls: env.REDIS_TLS ? {} : undefined,
+    const commonOptions = {
       lazyConnect: true,
       maxRetriesPerRequest: 1,
-      retryStrategy(times) {
+      retryStrategy(times: number) {
         if (times > 3) {
           logger.warn('Redis reconnection retries exhausted; running in detached mode.');
           return null; // stop reconnecting
         }
         return Math.min(times * 200, 2000);
       }
-    });
+    };
+
+    if (env.REDIS_URL) {
+      redisClient = new Redis(env.REDIS_URL, commonOptions);
+    } else {
+      redisClient = new Redis({
+        host: env.REDIS_HOST,
+        port: env.REDIS_PORT,
+        password: env.REDIS_PASSWORD || undefined,
+        tls: env.REDIS_TLS ? {} : undefined,
+        ...commonOptions
+      });
+    }
 
     redisClient.on('connect', () => {
       logger.info('Connected to Redis server');

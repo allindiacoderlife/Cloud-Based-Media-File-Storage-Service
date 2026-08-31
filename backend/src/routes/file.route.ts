@@ -26,5 +26,7 @@ router.post('/upload-direct', upload.single('file'), (req, res) => fileControlle
 router.get('/', (req, res) => fileController.listFiles(req, res));
 router.get('/:id', (req, res) => fileController.getFile(req, res));
 router.get('/:id/download', (req, res) => fileController.getDownloadUrl(req, res));
+router.patch('/:id', (req, res) => fileController.updateFile(req, res));
+router.delete('/:id', (req, res) => fileController.deleteFile(req, res));
 
 export const fileRoutes = router;

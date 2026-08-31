@@ -1,6 +1,8 @@
 import { supabaseAdmin, isSupabaseConfigured } from '../config/supabase.js';
 import { env } from '../config/env.js';
 import { fileRepository } from '../repositories/file.repository.js';
+import { folderRepository } from '../repositories/folder.repository.js';
+import { shareRepository } from '../repositories/share.repository.js';
 import { userRepository } from '../repositories/user.repository.js';
 import { generateStorageKey } from '../utils/storageKey.js';
 import { InitUploadInput, CompleteUploadInput } from '../validators/file.validator.js';
@@ -240,8 +242,10 @@ export class StorageService {
     }
 
     if (file.owner_id !== userId) {
-      // In Day 5 Sharing, we will also check shares table
-      throw new Error('You do not have permission to download this file');
+      const role = await shareRepository.getUserRoleOnResource(userId, 'file', file.id);
+      if (!role) {
+        throw new Error('You do not have permission to download this file');
+      }
     }
 
     if (isSupabaseConfigured) {
@@ -287,10 +291,67 @@ export class StorageService {
     }
 
     if (file.owner_id !== userId) {
-      throw new Error('You do not have permission to view this file');
+      const role = await shareRepository.getUserRoleOnResource(userId, 'file', file.id);
+      if (!role) {
+        throw new Error('You do not have permission to view this file');
+      }
     }
 
     return file;
+  }
+
+  async updateFile(
+    userId: string,
+    fileId: string,
+    updates: { name?: string; folderId?: string | null }
+  ): Promise<FileRecord> {
+    const file = await fileRepository.findById(fileId);
+    if (!file || file.is_deleted) {
+      throw new Error('File not found');
+    }
+
+    if (file.owner_id !== userId) {
+      const role = await shareRepository.getUserRoleOnResource(userId, 'file', file.id);
+      if (role !== 'editor') {
+        throw new Error('Unauthorized to modify this file');
+      }
+    }
+
+    // If moving to another folder, ensure target folder exists and belongs to user
+    if (updates.folderId !== undefined && updates.folderId !== null && updates.folderId !== 'root') {
+      const folder = await folderRepository.findById(updates.folderId);
+      if (!folder || folder.owner_id !== userId) {
+        throw new Error('Target folder not found');
+      }
+    }
+
+    const updated = await fileRepository.update(fileId, {
+      name: updates.name,
+      folder_id: updates.folderId === 'root' ? null : updates.folderId
+    });
+
+    if (!updated) {
+      throw new Error('Failed to update file');
+    }
+
+    return updated;
+  }
+
+  async deleteFile(userId: string, fileId: string): Promise<void> {
+    const file = await fileRepository.findById(fileId);
+    if (!file || file.is_deleted) {
+      throw new Error('File not found');
+    }
+
+    if (file.owner_id !== userId) {
+      throw new Error('Unauthorized to delete this file');
+    }
+
+    await fileRepository.softDelete(fileId);
+
+    // Recalculate user storage usage
+    const totalStorage = await fileRepository.calculateTotalUserStorage(userId);
+    await userRepository.updateStorageUsage(userId, totalStorage);
   }
 }
 

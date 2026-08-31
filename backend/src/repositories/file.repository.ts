@@ -270,6 +270,90 @@ export class FileRepository {
     return versionRecord;
   }
 
+  async update(
+    fileId: string,
+    updates: { name?: string; folder_id?: string | null }
+  ): Promise<FileRecord | null> {
+    const now = new Date().toISOString();
+
+    if (isSupabaseConfigured) {
+      try {
+        const updatePayload: any = { updated_at: now };
+        if (updates.name !== undefined) updatePayload.name = updates.name.trim();
+        if (updates.folder_id !== undefined) updatePayload.folder_id = updates.folder_id;
+
+        const { data, error } = await supabaseAdmin
+          .from('files')
+          .update(updatePayload)
+          .eq('id', fileId)
+          .select()
+          .single();
+
+        if (!error && data) {
+          return data as FileRecord;
+        }
+      } catch (err: any) {
+        logger.warn(`FileRepository.update exception: ${err.message}`);
+      }
+    }
+
+    const existing = devFallbackFiles.get(fileId);
+    if (existing) {
+      if (updates.name !== undefined) existing.name = updates.name.trim();
+      if (updates.folder_id !== undefined) existing.folder_id = updates.folder_id;
+      existing.updated_at = now;
+      return existing;
+    }
+
+    return null;
+  }
+
+  async softDelete(fileId: string): Promise<void> {
+    const now = new Date().toISOString();
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabaseAdmin
+          .from('files')
+          .update({ is_deleted: true, deleted_at: now, updated_at: now })
+          .eq('id', fileId);
+      } catch (err: any) {
+        logger.warn(`FileRepository.softDelete exception: ${err.message}`);
+      }
+    }
+
+    const existing = devFallbackFiles.get(fileId);
+    if (existing) {
+      existing.is_deleted = true;
+      existing.deleted_at = now;
+      existing.updated_at = now;
+    }
+  }
+
+  async softDeleteByFolderIds(folderIds: string[]): Promise<void> {
+    if (folderIds.length === 0) return;
+    const now = new Date().toISOString();
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabaseAdmin
+          .from('files')
+          .update({ is_deleted: true, deleted_at: now, updated_at: now })
+          .in('folder_id', folderIds);
+      } catch (err: any) {
+        logger.warn(`FileRepository.softDeleteByFolderIds exception: ${err.message}`);
+      }
+    }
+
+    for (const file of devFallbackFiles.values()) {
+      if (file.folder_id && folderIds.includes(file.folder_id)) {
+        file.is_deleted = true;
+        file.deleted_at = now;
+        file.updated_at = now;
+      }
+    }
+  }
+
   async calculateTotalUserStorage(ownerId: string): Promise<number> {
     if (isSupabaseConfigured) {
       try {

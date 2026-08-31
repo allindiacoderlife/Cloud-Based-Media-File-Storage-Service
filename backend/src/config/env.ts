@@ -16,6 +16,7 @@ const envSchema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().default('cloud-media-storage'),
 
   // Redis Configuration
+  REDIS_URL: z.string().optional(),
   REDIS_HOST: z.string().default('127.0.0.1'),
   REDIS_PORT: z.string().default('6379').transform((val) => parseInt(val, 10)),
   REDIS_PASSWORD: z.string().optional().default(''),

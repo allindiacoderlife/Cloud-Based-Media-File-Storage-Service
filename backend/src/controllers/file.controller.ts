@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { storageService } from '../services/storage.service.js';
-import { initUploadSchema, completeUploadSchema, listFilesQuerySchema } from '../validators/file.validator.js';
+import { initUploadSchema, completeUploadSchema, listFilesQuerySchema, updateFileSchema } from '../validators/file.validator.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
 export class FileController {
@@ -121,6 +121,35 @@ export class FileController {
     } catch (err: any) {
       const status = err.message?.includes('permission') ? 403 : 404;
       return sendError(res, err.message || 'Failed to get download URL', status);
+    }
+  }
+
+  async updateFile(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const validatedData = updateFileSchema.parse(req.body);
+      const updated = await storageService.updateFile(userId, req.params.id, validatedData);
+      return sendSuccess(res, { file: updated }, 'File updated successfully');
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to update file', 400);
+    }
+  }
+
+  async deleteFile(req: Request, res: Response): Promise<Response> {
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      await storageService.deleteFile(userId, req.params.id);
+      return sendSuccess(res, null, 'File deleted successfully');
+    } catch (err: any) {
+      return sendError(res, err.message || 'Failed to delete file', 400);
     }
   }
 }

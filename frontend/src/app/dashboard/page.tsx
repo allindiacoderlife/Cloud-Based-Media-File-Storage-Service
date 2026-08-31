@@ -6,6 +6,7 @@ import Link from 'next/link';
 import {
   Cloud,
   Folder,
+  FolderPlus,
   File,
   FileText,
   Image as ImageIcon,
@@ -25,44 +26,104 @@ import {
   Download,
   MoreVertical,
   Loader2,
-  FolderOpen
+  FolderOpen,
+  ChevronRight,
+  Edit3,
+  FolderSymlink,
+  Users
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
-import { FileItem } from '@/types';
+import { FileItem, Folder as FolderType } from '@/types';
 import UploadModal from '@/components/UploadModal';
+import CreateFolderModal from '@/components/CreateFolderModal';
+import RenameModal from '@/components/RenameModal';
+import MoveModal from '@/components/MoveModal';
+import ShareModal from '@/components/ShareModal';
+
+interface BreadcrumbItem {
+  id: string | null;
+  name: string;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, refreshUser } = useAuth();
 
+  // Navigation & View States
+  const [viewMode, setViewMode] = useState<'my-drive' | 'shared-with-me'>('my-drive');
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: 'My Drive' }]);
+  const [folders, setFolders] = useState<FolderType[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [sharedItems, setSharedItems] = useState<{ folders: any[]; files: any[] }>({
+    folders: [],
+    files: []
+  });
+  const [loadingContents, setLoadingContents] = useState(true);
 
-  const fetchFiles = useCallback(async () => {
+  // Modals state
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [renameItem, setRenameItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+  const [moveItem, setMoveItem] = useState<{
+    id: string;
+    name: string;
+    type: 'file' | 'folder';
+    currentParentId?: string | null;
+  } | null>(null);
+  const [shareItem, setShareItem] = useState<{ id: string; name: string; type: 'file' | 'folder' } | null>(null);
+
+  // Active action states
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  const fetchContents = useCallback(async () => {
     try {
-      setLoadingFiles(true);
-      const res = await apiClient.get('/files');
-      if (res.data?.data) {
-        setFiles(res.data.data);
+      setLoadingContents(true);
+
+      if (viewMode === 'shared-with-me') {
+        const res = await apiClient.get('/shares/shared-with-me');
+        setSharedItems(res.data?.data || { folders: [], files: [] });
+      } else if (currentFolderId) {
+        // Fetch specific folder
+        const res = await apiClient.get(`/folders/${currentFolderId}`);
+        const { breadcrumbs: bc, folders: subFolders, files: subFiles } = res.data.data;
+        setBreadcrumbs(bc || [{ id: null, name: 'My Drive' }]);
+        setFolders(subFolders || []);
+        setFiles(subFiles || []);
+      } else {
+        // Fetch root level
+        const [foldersRes, filesRes] = await Promise.all([
+          apiClient.get('/folders'),
+          apiClient.get('/files?folderId=root')
+        ]);
+        setBreadcrumbs([{ id: null, name: 'My Drive' }]);
+        setFolders(foldersRes.data?.data?.folders || []);
+        setFiles(filesRes.data?.data || []);
       }
     } catch (err: any) {
-      console.warn('Failed to load files:', err.message);
+      console.warn('Failed to load drive contents:', err.message);
     } finally {
-      setLoadingFiles(false);
+      setLoadingContents(false);
     }
-  }, []);
+  }, [viewMode, currentFolderId]);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     } else if (user) {
-      fetchFiles();
+      fetchContents();
     }
-  }, [user, loading, router, fetchFiles]);
+  }, [user, loading, router, fetchContents]);
+
+  // Handle outside click to close active dropdown menu
+  useEffect(() => {
+    const handleOutsideClick = () => setActiveMenuId(null);
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
 
   const handleDownload = async (file: FileItem) => {
     try {
@@ -76,6 +137,22 @@ export default function DashboardPage() {
       alert(`Download error: ${err.message}`);
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleDeleteItem = async (id: string, type: 'file' | 'folder', name: string) => {
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+
+    try {
+      if (type === 'folder') {
+        await apiClient.delete(`/folders/${id}`);
+      } else {
+        await apiClient.delete(`/files/${id}`);
+      }
+      await refreshUser();
+      fetchContents();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
     }
   };
 
@@ -110,11 +187,35 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Upload Modal */}
+      {/* Modals */}
       <UploadModal
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
-        onUploadSuccess={fetchFiles}
+        onUploadSuccess={fetchContents}
+        folderId={currentFolderId}
+      />
+      <CreateFolderModal
+        isOpen={isCreateFolderOpen}
+        onClose={() => setIsCreateFolderOpen(false)}
+        onSuccess={fetchContents}
+        parentId={currentFolderId}
+      />
+      <RenameModal
+        isOpen={renameItem !== null}
+        onClose={() => setRenameItem(null)}
+        onSuccess={fetchContents}
+        item={renameItem}
+      />
+      <MoveModal
+        isOpen={moveItem !== null}
+        onClose={() => setMoveItem(null)}
+        onSuccess={fetchContents}
+        item={moveItem}
+      />
+      <ShareModal
+        isOpen={shareItem !== null}
+        onClose={() => setShareItem(null)}
+        item={shareItem}
       />
 
       {/* Top Navbar */}
@@ -143,7 +244,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* User actions */}
+          {/* User Profile */}
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3 rounded-full border border-slate-800/80 bg-slate-900/60 px-3.5 py-1.5">
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600/20 text-blue-400 font-semibold text-xs border border-blue-500/30">
@@ -173,15 +274,32 @@ export default function DashboardPage() {
         <aside className="w-64 border-r border-slate-800/80 bg-slate-950/50 p-4 flex flex-col justify-between hidden md:flex">
           <div className="space-y-6">
             <div className="space-y-1">
-              <Link
-                href="/dashboard"
-                className="flex items-center space-x-3 rounded-xl bg-blue-600/10 px-3.5 py-2.5 text-sm font-semibold text-blue-400 border border-blue-500/20"
+              <button
+                onClick={() => {
+                  setViewMode('my-drive');
+                  setCurrentFolderId(null);
+                }}
+                className={`flex w-full items-center space-x-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all ${
+                  viewMode === 'my-drive'
+                    ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+                }`}
               >
                 <HardDrive className="h-4 w-4" />
                 <span>My Drive</span>
-              </Link>
+              </button>
 
-              <button className="flex w-full items-center space-x-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-900 hover:text-white">
+              <button
+                onClick={() => {
+                  setViewMode('shared-with-me');
+                  setCurrentFolderId(null);
+                }}
+                className={`flex w-full items-center space-x-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition-all ${
+                  viewMode === 'shared-with-me'
+                    ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20'
+                    : 'text-slate-400 hover:bg-slate-900 hover:text-white'
+                }`}
+              >
                 <Share2 className="h-4 w-4" />
                 <span>Shared with me</span>
               </button>
@@ -223,112 +341,410 @@ export default function DashboardPage() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-8">
-          {/* Header Actions */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-white">My Drive</h1>
-              <p className="text-xs text-slate-400 mt-1">Manage, upload, and organize your files</p>
-            </div>
-
-            <div className="flex items-center space-x-3">
-              <button
-                disabled
-                className="flex items-center space-x-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-xs font-medium text-slate-400 opacity-60 cursor-not-allowed"
-                title="Coming in Day 4: Files & Folders"
-              >
-                <Plus className="h-4 w-4" />
-                <span>New Folder</span>
-              </button>
-
-              <button
-                onClick={() => setIsUploadOpen(true)}
-                className="flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500"
-              >
-                <Upload className="h-4 w-4" />
-                <span>Upload File</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Files Content Section */}
-          <div className="mt-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
-                Files {files.length > 0 && `(${files.length})`}
-              </h2>
-            </div>
-
-            {loadingFiles ? (
-              <div className="flex py-16 items-center justify-center text-slate-500">
-                <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-500" />
-                <span className="text-xs">Fetching storage files...</span>
-              </div>
-            ) : files.length === 0 ? (
-              /* Empty State */
-              <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/20 py-20 px-4 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-400 mb-4">
-                  <FolderOpen className="h-8 w-8" />
-                </div>
-                <h3 className="text-base font-semibold text-white">No files in your drive yet</h3>
-                <p className="mt-1 max-w-sm text-xs text-slate-400">
-                  Upload images, documents, videos, and archives to store them securely.
-                </p>
-                <button
-                  onClick={() => setIsUploadOpen(true)}
-                  className="mt-5 flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/25 transition-all hover:bg-blue-500"
-                >
-                  <Upload className="h-4 w-4" />
-                  <span>Upload Your First File</span>
-                </button>
-              </div>
-            ) : (
-              /* File Grid */
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {files.map((file) => (
-                  <div
-                    key={file.id}
-                    className="glass-card group relative flex flex-col justify-between rounded-2xl p-4 transition-all"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/80 border border-slate-800">
-                          {getFileIcon(file.mime_type)}
-                        </div>
+          {/* View: My Drive */}
+          {viewMode === 'my-drive' ? (
+            <>
+              {/* Header Actions & Breadcrumb Path */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+                <div className="flex items-center flex-wrap gap-1.5 text-sm">
+                  {breadcrumbs.map((bc, idx) => {
+                    const isLast = idx === breadcrumbs.length - 1;
+                    return (
+                      <React.Fragment key={bc.id || 'root'}>
                         <button
-                          onClick={() => handleDownload(file)}
-                          disabled={downloadingId === file.id}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-600/20 hover:text-blue-400 transition-colors"
-                          title="Download file"
+                          onClick={() => setCurrentFolderId(bc.id)}
+                          className={`font-semibold transition-colors hover:text-blue-400 ${
+                            isLast ? 'text-white text-lg font-bold' : 'text-slate-400'
+                          }`}
                         >
-                          {downloadingId === file.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
-                          ) : (
-                            <Download className="h-4 w-4" />
-                          )}
+                          {bc.name}
                         </button>
-                      </div>
+                        {!isLast && <ChevronRight className="h-4 w-4 text-slate-600 flex-shrink-0" />}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
 
-                      <div className="mt-3">
-                        <h4 className="text-sm font-semibold text-white truncate" title={file.name}>
-                          {file.name}
-                        </h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {formatBytes(file.size_bytes)} • {formatDate(file.created_at)}
-                        </p>
-                      </div>
-                    </div>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => setIsCreateFolderOpen(true)}
+                    className="flex items-center space-x-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2 text-xs font-medium text-slate-200 transition-all hover:bg-slate-800 hover:text-white"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>New Folder</span>
+                  </button>
 
-                    <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-                      <span className="truncate max-w-[150px]">{file.mime_type}</span>
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-400 font-medium text-[10px] border border-emerald-500/20">
-                        v{file.current_version}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  <button
+                    onClick={() => setIsUploadOpen(true)}
+                    className="flex items-center space-x-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/25 transition-all hover:bg-blue-500"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>Upload File</span>
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Drive Content */}
+              <div className="mt-8 space-y-8">
+                {loadingContents ? (
+                  <div className="flex py-20 items-center justify-center text-slate-500">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-500" />
+                    <span className="text-xs">Loading items...</span>
+                  </div>
+                ) : folders.length === 0 && files.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/20 py-20 px-4 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-400 mb-4">
+                      <FolderOpen className="h-8 w-8" />
+                    </div>
+                    <h3 className="text-base font-semibold text-white">This folder is empty</h3>
+                    <p className="mt-1 max-w-sm text-xs text-slate-400">
+                      Drop files here or click below to upload items into this directory.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Folders */}
+                    {folders.length > 0 && (
+                      <div>
+                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Folders ({folders.length})
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+                          {folders.map((f) => (
+                            <div
+                              key={f.id}
+                              onDoubleClick={() => setCurrentFolderId(f.id)}
+                              className="glass-card group relative flex items-center justify-between rounded-2xl p-3.5 cursor-pointer select-none transition-all"
+                            >
+                              <div
+                                onClick={() => setCurrentFolderId(f.id)}
+                                className="flex items-center space-x-3 overflow-hidden flex-1"
+                              >
+                                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
+                                  <Folder className="h-5 w-5 fill-amber-400/20" />
+                                </div>
+                                <span className="text-xs font-semibold text-white truncate" title={f.name}>
+                                  {f.name}
+                                </span>
+                              </div>
+
+                              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={() => setActiveMenuId(activeMenuId === f.id ? null : f.id)}
+                                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+
+                                {activeMenuId === f.id && (
+                                  <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
+                                    <button
+                                      onClick={() => {
+                                        setCurrentFolderId(f.id);
+                                        setActiveMenuId(null);
+                                      }}
+                                      className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                    >
+                                      <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
+                                      <span>Open</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setShareItem({ id: f.id, name: f.name, type: 'folder' });
+                                        setActiveMenuId(null);
+                                      }}
+                                      className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                    >
+                                      <Share2 className="h-3.5 w-3.5 text-blue-400" />
+                                      <span>Share</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setRenameItem({ id: f.id, name: f.name, type: 'folder' });
+                                        setActiveMenuId(null);
+                                      }}
+                                      className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                    >
+                                      <Edit3 className="h-3.5 w-3.5 text-amber-400" />
+                                      <span>Rename</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setMoveItem({
+                                          id: f.id,
+                                          name: f.name,
+                                          type: 'folder',
+                                          currentParentId: f.parent_id
+                                        });
+                                        setActiveMenuId(null);
+                                      }}
+                                      className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                    >
+                                      <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
+                                      <span>Move</span>
+                                    </button>
+                                    <div className="my-1 border-t border-slate-800" />
+                                    <button
+                                      onClick={() => {
+                                        setActiveMenuId(null);
+                                        handleDeleteItem(f.id, 'folder', f.name);
+                                      }}
+                                      className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      <span>Delete</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Files */}
+                    {files.length > 0 && (
+                      <div>
+                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Files ({files.length})
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {files.map((file) => (
+                            <div
+                              key={file.id}
+                              className="glass-card group relative flex flex-col justify-between rounded-2xl p-4 transition-all"
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900/80 border border-slate-800">
+                                    {getFileIcon(file.mime_type)}
+                                  </div>
+
+                                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      onClick={() => setActiveMenuId(activeMenuId === file.id ? null : file.id)}
+                                      className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </button>
+
+                                    {activeMenuId === file.id && (
+                                      <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-slate-800 bg-slate-900 p-1 shadow-2xl animate-in fade-in">
+                                        <button
+                                          onClick={() => {
+                                            setActiveMenuId(null);
+                                            handleDownload(file);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                        >
+                                          <Download className="h-3.5 w-3.5 text-blue-400" />
+                                          <span>Download</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setShareItem({ id: file.id, name: file.name, type: 'file' });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                        >
+                                          <Share2 className="h-3.5 w-3.5 text-blue-400" />
+                                          <span>Share</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setRenameItem({ id: file.id, name: file.name, type: 'file' });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                        >
+                                          <Edit3 className="h-3.5 w-3.5 text-amber-400" />
+                                          <span>Rename</span>
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setMoveItem({
+                                              id: file.id,
+                                              name: file.name,
+                                              type: 'file',
+                                              currentParentId: file.folder_id
+                                            });
+                                            setActiveMenuId(null);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                                        >
+                                          <FolderSymlink className="h-3.5 w-3.5 text-indigo-400" />
+                                          <span>Move</span>
+                                        </button>
+                                        <div className="my-1 border-t border-slate-800" />
+                                        <button
+                                          onClick={() => {
+                                            setActiveMenuId(null);
+                                            handleDeleteItem(file.id, 'file', file.name);
+                                          }}
+                                          className="flex w-full items-center space-x-2 rounded-lg px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                          <span>Delete</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="mt-3">
+                                  <h4 className="text-sm font-semibold text-white truncate" title={file.name}>
+                                    {file.name}
+                                  </h4>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {formatBytes(file.size_bytes)} • {formatDate(file.created_at)}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+                                <span className="truncate max-w-[150px]">{file.mime_type}</span>
+                                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-400 font-medium text-[10px] border border-emerald-500/20">
+                                  v{file.current_version}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            /* View: Shared With Me */
+            <div>
+              <div className="border-b border-slate-800 pb-6">
+                <h1 className="text-xl font-bold text-white flex items-center space-x-2">
+                  <Share2 className="h-5 w-5 text-blue-400" />
+                  <span>Shared with me</span>
+                </h1>
+                <p className="text-xs text-slate-400 mt-1">
+                  Files and folders other users have shared with you
+                </p>
+              </div>
+
+              <div className="mt-8 space-y-8">
+                {loadingContents ? (
+                  <div className="flex py-20 items-center justify-center text-slate-500">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2 text-blue-500" />
+                    <span className="text-xs">Loading shared items...</span>
+                  </div>
+                ) : sharedItems.folders.length === 0 && sharedItems.files.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-900/20 py-20 px-4 text-center">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600/10 text-blue-400 mb-4">
+                      <Users className="h-8 w-8" />
+                    </div>
+                    <h3 className="text-base font-semibold text-white">No items shared with you</h3>
+                    <p className="mt-1 text-xs text-slate-400">
+                      When someone shares a file or folder with your email, it will appear here.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Shared Folders */}
+                    {sharedItems.folders.length > 0 && (
+                      <div>
+                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Shared Folders ({sharedItems.folders.length})
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                          {sharedItems.folders.map((item) => (
+                            <div
+                              key={item.shareId}
+                              className="glass-card flex items-center justify-between rounded-2xl p-4 transition-all"
+                            >
+                              <div className="flex items-center space-x-3 overflow-hidden">
+                                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400">
+                                  <Folder className="h-5 w-5 fill-amber-400/20" />
+                                </div>
+                                <div className="truncate">
+                                  <span className="text-xs font-semibold text-white truncate block">
+                                    {item.resource.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    Owner: {item.owner.fullName || item.owner.email}
+                                  </span>
+                                </div>
+                              </div>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                                  item.role === 'editor'
+                                    ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                    : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                }`}
+                              >
+                                {item.role}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Shared Files */}
+                    {sharedItems.files.length > 0 && (
+                      <div>
+                        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
+                          Shared Files ({sharedItems.files.length})
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                          {sharedItems.files.map((item) => (
+                            <div
+                              key={item.shareId}
+                              className="glass-card flex flex-col justify-between rounded-2xl p-4 transition-all"
+                            >
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 border border-slate-800">
+                                    {getFileIcon(item.resource.mime_type)}
+                                  </div>
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                                      item.role === 'editor'
+                                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                        : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                                    }`}
+                                  >
+                                    {item.role}
+                                  </span>
+                                </div>
+
+                                <div className="mt-3">
+                                  <h4 className="text-sm font-semibold text-white truncate" title={item.resource.name}>
+                                    {item.resource.name}
+                                  </h4>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    {formatBytes(item.resource.size_bytes)} • Owner: {item.owner.fullName || item.owner.email}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 pt-3 border-t border-slate-800 flex justify-end">
+                                <button
+                                  onClick={() => handleDownload(item.resource)}
+                                  className="flex items-center space-x-1.5 rounded-xl bg-blue-600/10 border border-blue-500/20 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-blue-600 hover:text-white transition-all"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span>Download</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

@@ -34,6 +34,20 @@ export const listFilesQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0)
 });
 
+export const updateFileSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, { message: 'File name is required' })
+    .max(255, { message: 'File name cannot exceed 255 characters' })
+    .refine((val) => !/[\\/:\*\?"<>\|]/.test(val), {
+      message: 'File name contains invalid characters'
+    })
+    .optional(),
+  folderId: z.string().nullable().optional()
+});
+
 export type InitUploadInput = z.infer<typeof initUploadSchema>;
 export type CompleteUploadInput = z.infer<typeof completeUploadSchema>;
+export type UpdateFileInput = z.infer<typeof updateFileSchema>;
 export type ListFilesQueryInput = z.infer<typeof listFilesQuerySchema>;
