@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import QueryProvider from '@/providers/QueryProvider';
 import { AuthProvider } from '@/context/AuthContext';
+import { ToastProvider } from '@/context/ToastContext';
 
 export const metadata: Metadata = {
   title: 'CloudVault — Secure Cloud Media & File Storage',
@@ -18,7 +19,9 @@ export default function RootLayout({
       <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-blue-500 selection:text-white">
         <QueryProvider>
           <AuthProvider>
-            {children}
+            <ToastProvider>
+              {children}
+            </ToastProvider>
           </AuthProvider>
         </QueryProvider>
       </body>
