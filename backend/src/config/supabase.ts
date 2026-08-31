@@ -2,19 +2,28 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
+const rawUrl = env.SUPABASE_URL?.trim();
+const safeUrl =
+  rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'))
+    ? rawUrl
+    : 'https://placeholder.supabase.co';
+
+const safeAnonKey = env.SUPABASE_ANON_KEY?.trim() || 'placeholder-anon-key';
+const safeServiceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim() || 'placeholder-service-role-key';
+
 export const isSupabaseConfigured = Boolean(
-  env.SUPABASE_URL &&
-  !env.SUPABASE_URL.includes('example.supabase.co') &&
-  env.SUPABASE_ANON_KEY &&
-  env.SUPABASE_ANON_KEY !== 'default-anon-key' &&
-  env.SUPABASE_ANON_KEY !== 'example-anon-key'
+  rawUrl &&
+    !rawUrl.includes('placeholder.supabase.co') &&
+    !rawUrl.includes('example.supabase.co') &&
+    safeAnonKey !== 'placeholder-anon-key' &&
+    safeAnonKey !== 'default-anon-key'
 );
 
 // Public Supabase client (anon key)
-export const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
+export const supabase = createClient(safeUrl, safeAnonKey);
 
 // Admin Supabase client (service role key, bypasses RLS for administrative operations)
-export const supabaseAdmin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+export const supabaseAdmin = createClient(safeUrl, safeServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
