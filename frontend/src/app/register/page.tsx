@@ -41,7 +41,8 @@ export default function RegisterPage() {
       await register(email, password, fullName.trim() || undefined);
       router.push('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Registration failed');
+      const msg = typeof err === 'string' ? err : err?.message || 'Registration failed. Please check your credentials.';
+      setError(typeof msg === 'object' ? JSON.stringify(msg) : String(msg));
     } finally {
       setIsSubmitting(false);
     }

@@ -10,7 +10,7 @@ const envSchema = z.object({
   CLIENT_ORIGIN: z.string().default('http://localhost:3000'),
 
   // Supabase Configuration
-  SUPABASE_URL: z.string().url().default('https://example.supabase.co'),
+  SUPABASE_URL: z.string().default('https://example.supabase.co'),
   SUPABASE_ANON_KEY: z.string().default('default-anon-key'),
   SUPABASE_SERVICE_ROLE_KEY: z.string().default('default-service-role-key'),
   SUPABASE_STORAGE_BUCKET: z.string().default('cloud-media-storage'),
@@ -30,8 +30,7 @@ const envSchema = z.object({
 const _env = envSchema.safeParse(process.env);
 
 if (!_env.success) {
-  console.error('❌ Invalid environment variables:', _env.error.format());
-  process.exit(1);
+  console.warn('⚠️ Environment variables warning:', _env.error.format());
 }
 
-export const env = _env.data;
+export const env = _env.success ? _env.data : (envSchema.parse({}) as z.infer<typeof envSchema>);

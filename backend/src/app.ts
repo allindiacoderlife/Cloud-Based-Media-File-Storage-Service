@@ -12,10 +12,10 @@ export const createApp = (): Application => {
   const app = express();
 
   // Security & standard middleware
-  app.use(helmet());
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
   app.use(
     cors({
-      origin: [env.CLIENT_ORIGIN, 'http://localhost:3000'],
+      origin: true, // Allow any requesting origin including Vercel preview URLs
       credentials: true
     })
   );
@@ -26,8 +26,21 @@ export const createApp = (): Application => {
   // Logging
   app.use(requestLogger);
 
-  // Mount API endpoints
+  // Root health route
+  app.get('/', (req, res) => {
+    res.json({
+      status: 'ok',
+      service: 'CloudVault Media Storage Service API',
+      version: '0.1.0',
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Mount API endpoints under all possible rewrite prefixes
+  app.use('/api/backend/api/v1', apiRouter);
+  app.use('/api/backend', apiRouter);
   app.use(env.API_PREFIX, apiRouter);
+  app.use('/api', apiRouter);
 
   // 404 handler
   app.use((req, res) => {
