@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { authService } from '../services/auth.service.js';
-import { registerSchema, loginSchema, refreshTokenSchema, updateProfileSchema } from '../validators/auth.validator.js';
+import { registerSchema, loginSchema, refreshTokenSchema, updateProfileSchema, changePasswordSchema } from '../validators/auth.validator.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
 export class AuthController {
@@ -107,6 +107,24 @@ export class AuthController {
         return sendError(res, err.errors[0]?.message || 'Validation error', 400, err.errors);
       }
       return sendError(res, err.message || 'Failed to update profile', 400);
+    }
+  }
+
+  async changePassword(req: Request, res: Response): Promise<Response> {
+    try {
+      if (!req.user || !req.user.userId) {
+        return sendError(res, 'Unauthorized', 401);
+      }
+
+      const validatedData = changePasswordSchema.parse(req.body);
+      await authService.changePassword(req.user.userId, validatedData);
+      return sendSuccess(res, null, 'Password updated successfully');
+    } catch (err: any) {
+      if (err instanceof ZodError) {
+        return sendError(res, err.errors[0]?.message || 'Validation error', 400, err.errors);
+      }
+      const status = err.message === 'Current password is incorrect' ? 400 : 400;
+      return sendError(res, err.message || 'Failed to update password', status);
     }
   }
 }

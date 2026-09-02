@@ -2,7 +2,7 @@ import { userRepository } from '../repositories/user.repository.js';
 import { hashPassword, comparePassword } from '../utils/password.js';
 import { generateAuthTokens, verifyToken, generateAccessToken } from '../utils/jwt.js';
 import { User, UserPublicProfile, AuthTokens } from '../types/index.js';
-import { RegisterInput, LoginInput, UpdateProfileInput } from '../validators/auth.validator.js';
+import { RegisterInput, LoginInput, UpdateProfileInput, ChangePasswordInput } from '../validators/auth.validator.js';
 
 export class AuthService {
   private formatUserProfile(user: User): UserPublicProfile {
@@ -99,6 +99,24 @@ export class AuthService {
     }
 
     return this.formatUserProfile(updatedUser);
+  }
+
+  async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+    const user = await userRepository.findById(userId);
+    if (!user || !user.password_hash) {
+      throw new Error('User not found');
+    }
+
+    const isMatch = await comparePassword(input.currentPassword, user.password_hash);
+    if (!isMatch) {
+      throw new Error('Current password is incorrect');
+    }
+
+    const newPasswordHash = await hashPassword(input.newPassword);
+    const updated = await userRepository.updatePassword(userId, newPasswordHash);
+    if (!updated) {
+      throw new Error('Failed to update password');
+    }
   }
 }
 

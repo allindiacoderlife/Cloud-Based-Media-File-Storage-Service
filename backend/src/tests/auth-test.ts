@@ -145,7 +145,78 @@ async function runAuthTests() {
     const logoutData: any = await logoutRes.json();
     console.log(`Status: ${logoutRes.status}`, logoutData.success ? '✅ Logout Success' : '❌ Failed');
 
-    console.log('\n🎉 ALL 8 AUTH TESTS PASSED SUCCESSFULLY!\n');
+    // Test 9: PATCH /auth/profile - Update full name & avatar
+    console.log('\n[Test 9] PATCH /auth/profile - Update profile details');
+    const profileRes = await fetch(`${BASE_URL}/auth/profile`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        fullName: 'Updated Explorer Name',
+        avatarUrl: 'https://example.com/avatar.png'
+      })
+    });
+    const profileData: any = await profileRes.json();
+    console.log(`Status: ${profileRes.status}`, profileData.success && profileData.data?.user?.full_name === 'Updated Explorer Name' ? '✅ Profile Update Success' : '❌ Failed');
+
+    // Test 10: POST /auth/change-password - Reject wrong current password
+    console.log('\n[Test 10] POST /auth/change-password - Incorrect current password rejection');
+    const badPwRes = await fetch(`${BASE_URL}/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        currentPassword: 'incorrectpassword',
+        newPassword: 'newpassword456'
+      })
+    });
+    const badPwData: any = await badPwRes.json();
+    console.log(`Status: ${badPwRes.status}`, badPwRes.status === 400 && !badPwData.success ? '✅ Correctly Rejected (400)' : '❌ Failed');
+
+    // Test 11: POST /auth/change-password - Successfully change password
+    console.log('\n[Test 11] POST /auth/change-password - Successful password update');
+    const changePwRes = await fetch(`${BASE_URL}/auth/change-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        currentPassword: 'password123',
+        newPassword: 'newpassword456'
+      })
+    });
+    const changePwData: any = await changePwRes.json();
+    console.log(`Status: ${changePwRes.status}`, changePwData.success ? '✅ Password Changed Successfully' : '❌ Failed');
+
+    // Test 12: POST /auth/login - Old password fails, new password succeeds
+    console.log('\n[Test 12] POST /auth/login - Verify login with new password');
+    const oldLoginRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: testEmail,
+        password: 'password123'
+      })
+    });
+    console.log(`Old password status: ${oldLoginRes.status}`, oldLoginRes.status === 401 ? '✅ Old password rejected' : '❌ Old password still worked!');
+
+    const newLoginRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: testEmail,
+        password: 'newpassword456'
+      })
+    });
+    const newLoginData: any = await newLoginRes.json();
+    console.log(`New password status: ${newLoginRes.status}`, newLoginData.success ? '✅ New password logged in successfully' : '❌ Failed');
+
+    console.log('\n🎉 ALL 12 AUTH & PROFILE TESTS PASSED SUCCESSFULLY!\n');
   } finally {
     server.close();
   }

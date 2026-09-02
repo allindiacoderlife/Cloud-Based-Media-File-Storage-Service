@@ -138,6 +138,37 @@ export class UserRepository {
     return null;
   }
 
+  async updatePassword(id: string, newPasswordHash: string): Promise<User | null> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabaseAdmin
+          .from('users')
+          .update({
+            password_hash: newPasswordHash,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          return data as User;
+        }
+      } catch (err: any) {
+        logger.warn(`UserRepository.updatePassword exception: ${err.message}`);
+      }
+    }
+
+    const existing = devFallbackUsers.get(id);
+    if (existing) {
+      existing.password_hash = newPasswordHash;
+      existing.updated_at = new Date().toISOString();
+      return existing;
+    }
+
+    return null;
+  }
+
   async updateStorageUsage(id: string, usedBytes: number): Promise<void> {
     if (isSupabaseConfigured) {
       try {

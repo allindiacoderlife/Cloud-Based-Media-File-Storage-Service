@@ -55,10 +55,20 @@ export const updateProfileSchema = z.object({
       message: 'Full name must contain at least one letter'
     })
     .optional(),
-  avatarUrl: z.string().url().optional()
+  avatarUrl: z.string().url({ message: 'Avatar URL must be a valid URL' }).optional().or(z.literal(''))
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, { message: 'Current password is required' }),
+  newPassword: z
+    .string({ required_error: 'New password is required' })
+    .min(6, { message: 'New password must be at least 6 characters long' })
+    .max(100, { message: 'New password must not exceed 100 characters' })
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+

@@ -14,5 +14,7 @@ router.post('/refresh', authRateLimiter, (req, res) => authController.refreshTok
 // Protected auth routes
 router.get('/me', requireAuth, (req, res) => authController.getMe(req, res));
 router.patch('/profile', requireAuth, (req, res) => authController.updateProfile(req, res));
+router.post('/change-password', requireAuth, authRateLimiter, (req, res) => authController.changePassword(req, res));
+router.patch('/password', requireAuth, authRateLimiter, (req, res) => authController.changePassword(req, res));
 
 export const authRoutes = router;

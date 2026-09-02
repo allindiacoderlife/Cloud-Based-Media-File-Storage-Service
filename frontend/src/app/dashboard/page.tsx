@@ -43,7 +43,9 @@ import {
   History,
   Eye,
   Sparkles,
-  PieChart
+  PieChart,
+  User as UserIcon,
+  Settings
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatBytes, formatDate } from '@/lib/utils';
@@ -699,16 +701,36 @@ export default function DashboardPage() {
           </div>
 
           {/* User Profile */}
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3 rounded-full border border-slate-800/80 bg-slate-900/60 px-3.5 py-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600/20 text-blue-400 font-semibold text-xs border border-blue-500/30">
-                {user.full_name ? user.full_name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+          <div className="flex items-center space-x-3">
+            <Link
+              href="/profile"
+              title="View & Edit Profile"
+              className="group flex items-center space-x-3 rounded-full border border-slate-800/80 bg-slate-900/60 px-3.5 py-1.5 transition-all hover:bg-slate-800 hover:border-blue-500/40"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600/20 text-blue-400 font-semibold text-xs border border-blue-500/30 overflow-hidden group-hover:scale-105 transition-transform">
+                {user.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={user.avatar_url}
+                    alt={user.full_name || user.email}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : user.full_name ? (
+                  user.full_name.charAt(0).toUpperCase()
+                ) : (
+                  user.email.charAt(0).toUpperCase()
+                )}
               </div>
               <div className="hidden sm:block text-left">
-                <div className="text-xs font-medium text-white line-clamp-1">{user.full_name || user.email}</div>
+                <div className="text-xs font-medium text-white line-clamp-1 group-hover:text-blue-400 transition-colors">
+                  {user.full_name || user.email}
+                </div>
                 <div className="text-[10px] text-slate-400 line-clamp-1">{user.email}</div>
               </div>
-            </div>
+            </Link>
 
             <button
               onClick={() => logout()}
@@ -802,6 +824,18 @@ export default function DashboardPage() {
                 <Trash2 className="h-4 w-4" />
                 <span>Trash</span>
               </button>
+
+              <div className="pt-2 pb-1">
+                <div className="h-px bg-slate-800/80" />
+              </div>
+
+              <Link
+                href="/profile"
+                className="flex w-full items-center space-x-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-400 hover:bg-slate-900 hover:text-white transition-all"
+              >
+                <UserIcon className="h-4 w-4 text-blue-400" />
+                <span>Profile & Security</span>
+              </Link>
             </div>
           </div>
 
