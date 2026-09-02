@@ -33,14 +33,29 @@ async function runAuthTests() {
     const refreshToken = regData.data.tokens.refreshToken;
     const userId = regData.data.user.id;
 
-    // Test 2: Prevent duplicate registration
-    console.log('\n[Test 2] POST /auth/register - Duplicate email rejection');
+    // Test 2: Reject empty or missing full name
+    console.log('\n[Test 2] POST /auth/register - Empty full name rejection');
+    const emptyNameRes = await fetch(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: `empty_${Date.now()}@example.com`,
+        password: 'password123',
+        fullName: '   '
+      })
+    });
+    const emptyNameData: any = await emptyNameRes.json();
+    console.log(`Status: ${emptyNameRes.status}`, emptyNameRes.status === 400 && !emptyNameData.success ? '✅ Correctly Rejected (400 Bad Request)' : '❌ Failed');
+
+    // Test 3: Prevent duplicate registration
+    console.log('\n[Test 3] POST /auth/register - Duplicate email rejection');
     const dupRes = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: testEmail,
-        password: 'password123'
+        password: 'password123',
+        fullName: 'Test Explorer Duplicate'
       })
     });
     const dupData: any = await dupRes.json();

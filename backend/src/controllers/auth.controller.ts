@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { ZodError } from 'zod';
 import { authService } from '../services/auth.service.js';
 import { registerSchema, loginSchema, refreshTokenSchema, updateProfileSchema } from '../validators/auth.validator.js';
 import { sendSuccess, sendError } from '../utils/response.js';
@@ -19,6 +20,9 @@ export class AuthController {
 
       return sendSuccess(res, result, 'Registration successful', 201);
     } catch (err: any) {
+      if (err instanceof ZodError) {
+        return sendError(res, err.errors[0]?.message || 'Validation failed', 400, err.errors);
+      }
       const status = err.message?.includes('already exists') ? 409 : 400;
       return sendError(res, err.message || 'Registration failed', status);
     }
@@ -38,6 +42,9 @@ export class AuthController {
 
       return sendSuccess(res, result, 'Login successful');
     } catch (err: any) {
+      if (err instanceof ZodError) {
+        return sendError(res, err.errors[0]?.message || 'Validation error', 400, err.errors);
+      }
       return sendError(res, err.message || 'Authentication failed', 401);
     }
   }
@@ -79,6 +86,9 @@ export class AuthController {
 
       return sendSuccess(res, result, 'Token refreshed successfully');
     } catch (err: any) {
+      if (err instanceof ZodError) {
+        return sendError(res, err.errors[0]?.message || 'Validation error', 400, err.errors);
+      }
       return sendError(res, err.message || 'Token refresh failed', 401);
     }
   }
@@ -93,6 +103,9 @@ export class AuthController {
       const user = await authService.updateProfile(req.user.userId, validatedData);
       return sendSuccess(res, { user }, 'Profile updated successfully');
     } catch (err: any) {
+      if (err instanceof ZodError) {
+        return sendError(res, err.errors[0]?.message || 'Validation error', 400, err.errors);
+      }
       return sendError(res, err.message || 'Failed to update profile', 400);
     }
   }

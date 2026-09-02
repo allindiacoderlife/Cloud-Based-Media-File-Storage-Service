@@ -21,7 +21,18 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
-    if (!email || !password) {
+    const trimmedFullName = fullName.trim();
+    if (!trimmedFullName) {
+      setError('Full name is required.');
+      return;
+    }
+
+    if (trimmedFullName.length < 2) {
+      setError('Full name must be at least 2 characters.');
+      return;
+    }
+
+    if (!email.trim() || !password) {
       setError('Email and password are required.');
       return;
     }
@@ -38,10 +49,13 @@ export default function RegisterPage() {
 
     setIsSubmitting(true);
     try {
-      await register(email, password, fullName.trim() || undefined);
+      await register(email.trim(), password, trimmedFullName);
       router.push('/dashboard');
     } catch (err: any) {
-      const msg = typeof err === 'string' ? err : err?.message || 'Registration failed. Please check your credentials.';
+      const msg =
+        err?.response?.data?.message ||
+        (typeof err === 'string' ? err : err?.message) ||
+        'Registration failed. Please check your credentials.';
       setError(typeof msg === 'object' ? JSON.stringify(msg) : String(msg));
     } finally {
       setIsSubmitting(false);
@@ -85,7 +99,7 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Full Name (Optional)
+                Full Name <span className="text-red-400">*</span>
               </label>
               <div className="relative mt-2">
                 <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
@@ -95,6 +109,7 @@ export default function RegisterPage() {
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  required
                   placeholder="Alex Rivers"
                   className="block w-full rounded-xl border border-slate-800 bg-slate-900/80 pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 transition-all focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
