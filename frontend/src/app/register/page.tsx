@@ -32,8 +32,19 @@ export default function RegisterPage() {
       return;
     }
 
-    if (!email.trim() || !password) {
+    if (/^\d+$/.test(trimmedFullName.replace(/\s+/g, '')) || !/[a-zA-Z]/.test(trimmedFullName)) {
+      setError('Full name cannot contain only numbers. Please enter a valid name.');
+      return;
+    }
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
       setError('Email and password are required.');
+      return;
+    }
+
+    if (/^\d+$/.test(trimmedEmail.replace(/\s+/g, ''))) {
+      setError('Email cannot be only numbers. Please enter a valid email address.');
       return;
     }
 

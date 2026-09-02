@@ -19,17 +19,26 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
-    if (!email || !password) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
       setError('Please fill in all fields.');
+      return;
+    }
+
+    if (/^\d+$/.test(trimmedEmail.replace(/\s+/g, ''))) {
+      setError('Email cannot be only numbers. Please enter a valid email address.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await login(email, password);
+      await login(trimmedEmail, password);
       router.push('/dashboard');
     } catch (err: any) {
-      const msg = typeof err === 'string' ? err : err?.message || 'Invalid email or password';
+      const msg =
+        err?.response?.data?.message ||
+        (typeof err === 'string' ? err : err?.message) ||
+        'Invalid email or password';
       setError(typeof msg === 'object' ? JSON.stringify(msg) : String(msg));
     } finally {
       setIsSubmitting(false);

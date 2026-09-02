@@ -47,8 +47,35 @@ async function runAuthTests() {
     const emptyNameData: any = await emptyNameRes.json();
     console.log(`Status: ${emptyNameRes.status}`, emptyNameRes.status === 400 && !emptyNameData.success ? '✅ Correctly Rejected (400 Bad Request)' : '❌ Failed');
 
-    // Test 3: Prevent duplicate registration
-    console.log('\n[Test 3] POST /auth/register - Duplicate email rejection');
+    // Test 3: Reject numeric-only full name
+    console.log('\n[Test 3] POST /auth/register - Numeric-only full name rejection');
+    const numericNameRes = await fetch(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: `num_${Date.now()}@example.com`,
+        password: 'password123',
+        fullName: '12345678'
+      })
+    });
+    const numericNameData: any = await numericNameRes.json();
+    console.log(`Status: ${numericNameRes.status}`, numericNameRes.status === 400 && !numericNameData.success ? '✅ Correctly Rejected (400 Bad Request)' : '❌ Failed');
+
+    // Test 4: Reject numeric-only login email
+    console.log('\n[Test 4] POST /auth/login - Numeric-only email rejection');
+    const numericLoginRes = await fetch(`${BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: '1234567890',
+        password: 'password123'
+      })
+    });
+    const numericLoginData: any = await numericLoginRes.json();
+    console.log(`Status: ${numericLoginRes.status}`, numericLoginRes.status === 400 && !numericLoginData.success ? '✅ Correctly Rejected (400 Bad Request)' : '❌ Failed');
+
+    // Test 5: Prevent duplicate registration
+    console.log('\n[Test 5] POST /auth/register - Duplicate email rejection');
     const dupRes = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -6,8 +6,20 @@ export const registerSchema = z.object({
     .trim()
     .min(1, { message: 'Full name is required' })
     .min(2, { message: 'Full name must be at least 2 characters' })
-    .max(100, { message: 'Full name must not exceed 100 characters' }),
-  email: z.string({ required_error: 'Email is required' }).trim().email({ message: 'Please provide a valid email address' }),
+    .max(100, { message: 'Full name must not exceed 100 characters' })
+    .refine((val) => !/^\d+$/.test(val.replace(/\s+/g, '')), {
+      message: 'Full name cannot contain only numbers'
+    })
+    .refine((val) => /[a-zA-Z]/.test(val), {
+      message: 'Full name must contain at least one letter'
+    }),
+  email: z
+    .string({ required_error: 'Email is required' })
+    .trim()
+    .email({ message: 'Please provide a valid email address' })
+    .refine((val) => !/^\d+$/.test(val.replace(/\s+/g, '')), {
+      message: 'Email cannot be only numbers. Please provide a valid email address'
+    }),
   password: z
     .string({ required_error: 'Password is required' })
     .min(6, { message: 'Password must be at least 6 characters long' })
@@ -15,7 +27,14 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().trim().email({ message: 'Please provide a valid email address' }),
+  email: z
+    .string({ required_error: 'Email is required' })
+    .trim()
+    .min(1, { message: 'Email is required' })
+    .email({ message: 'Please provide a valid email address' })
+    .refine((val) => !/^\d+$/.test(val.replace(/\s+/g, '')), {
+      message: 'Email cannot be only numbers. Please provide a valid email address'
+    }),
   password: z.string().min(1, { message: 'Password is required' })
 });
 
@@ -24,7 +43,18 @@ export const refreshTokenSchema = z.object({
 });
 
 export const updateProfileSchema = z.object({
-  fullName: z.string().trim().min(2).max(100).optional(),
+  fullName: z
+    .string()
+    .trim()
+    .min(2, { message: 'Full name must be at least 2 characters' })
+    .max(100, { message: 'Full name must not exceed 100 characters' })
+    .refine((val) => !/^\d+$/.test(val.replace(/\s+/g, '')), {
+      message: 'Full name cannot contain only numbers'
+    })
+    .refine((val) => /[a-zA-Z]/.test(val), {
+      message: 'Full name must contain at least one letter'
+    })
+    .optional(),
   avatarUrl: z.string().url().optional()
 });
 
