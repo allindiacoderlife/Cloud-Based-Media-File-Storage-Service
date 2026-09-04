@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { checkSupabaseConnection } from '../config/supabase.js';
+import { checkSupabaseConnection, safeUrl, isSupabaseConfigured } from '../config/supabase.js';
 import { checkRedisConnection } from '../config/redis.js';
 import { sendSuccess } from '../utils/response.js';
 
@@ -11,9 +11,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
   let supabaseHostname = 'unset';
   try {
-    if (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      supabaseHostname = new URL(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '').hostname;
-    }
+    supabaseHostname = new URL(safeUrl).hostname;
   } catch {}
 
   const healthData = {

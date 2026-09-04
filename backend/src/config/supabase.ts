@@ -2,19 +2,31 @@ import { createClient } from '@supabase/supabase-js';
 import { env } from './env.js';
 import { logger } from '../utils/logger.js';
 
-const rawUrl = env.SUPABASE_URL?.trim();
-const safeUrl =
-  rawUrl && (rawUrl.startsWith('http://') || rawUrl.startsWith('https://'))
-    ? rawUrl
-    : 'https://placeholder.supabase.co';
+const sanitizeUrl = (raw?: string | null): string => {
+  if (!raw) return 'https://placeholder.supabase.co';
+  let cleaned = raw.trim().replace(/^["'`]|["'`]$/g, '').trim().replace(/\/+$/, '');
+  if (!cleaned) return 'https://placeholder.supabase.co';
+  if (!/^https?:\/\//i.test(cleaned)) {
+    cleaned = `https://${cleaned}`;
+  }
+  return cleaned;
+};
 
-const safeAnonKey = env.SUPABASE_ANON_KEY?.trim() || 'placeholder-anon-key';
-const safeServiceKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim() || 'placeholder-service-role-key';
+const sanitizeKey = (raw?: string | null, fallback = ''): string => {
+  if (!raw) return fallback;
+  const cleaned = raw.trim().replace(/^["'`]|["'`]$/g, '').trim();
+  return cleaned || fallback;
+};
+
+const rawUrl = env.SUPABASE_URL;
+export const safeUrl = sanitizeUrl(rawUrl);
+export const safeAnonKey = sanitizeKey(env.SUPABASE_ANON_KEY, 'placeholder-anon-key');
+export const safeServiceKey = sanitizeKey(env.SUPABASE_SERVICE_ROLE_KEY, safeAnonKey);
 
 export const isSupabaseConfigured = Boolean(
-  rawUrl &&
-    !rawUrl.includes('placeholder.supabase.co') &&
-    !rawUrl.includes('example.supabase.co') &&
+  safeUrl &&
+    !safeUrl.includes('placeholder.supabase.co') &&
+    !safeUrl.includes('example.supabase.co') &&
     safeAnonKey !== 'placeholder-anon-key' &&
     safeAnonKey !== 'default-anon-key'
 );
