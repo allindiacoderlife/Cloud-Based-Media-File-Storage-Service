@@ -7,6 +7,9 @@ import { userRepository } from '../repositories/user.repository.js';
 import { storageService } from './storage.service.js';
 import { CreateShareInput, CreateLinkShareInput } from '../validators/share.validator.js';
 import { Share, LinkShare, ResourceType, UserRole } from '../types/index.js';
+import { emailService } from './email.service.js';
+import { env } from '../config/env.js';
+import { logger } from '../utils/logger.js';
 
 export interface SharedResourceItem {
   shareId: string;
@@ -46,6 +49,35 @@ export class ShareService {
       role: input.role,
       created_by: callerId
     });
+
+    // 4. Dispatch Email Notification asynchronously (non-blocking)
+    (async () => {
+      try {
+        let resourceName = input.resourceType === 'file' ? 'File' : 'Folder';
+        if (input.resourceType === 'file') {
+          const file = await fileRepository.findById(input.resourceId);
+          if (file?.name) resourceName = file.name;
+        } else {
+          const folder = await folderRepository.findById(input.resourceId);
+          if (folder?.name) resourceName = folder.name;
+        }
+
+        const sharer = await userRepository.findById(callerId);
+
+        await emailService.sendShareNotification({
+          to: recipient.email,
+          recipientName: recipient.full_name,
+          sharerName: sharer?.full_name || null,
+          sharerEmail: sharer?.email || 'Unknown',
+          resourceName,
+          resourceType: input.resourceType,
+          role: input.role,
+          accessUrl: `${env.CLIENT_ORIGIN}/dashboard`
+        });
+      } catch (emailErr: any) {
+        logger.warn(`Failed to dispatch share notification email: ${emailErr.message}`);
+      }
+    })();
 
     return {
       share,

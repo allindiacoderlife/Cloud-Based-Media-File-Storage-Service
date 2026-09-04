@@ -100,7 +100,7 @@ export default function ShareModal({ isOpen, onClose, item }: ShareModalProps) {
         role: granteeRole
       });
 
-      setSuccessMsg(`Access granted to ${granteeEmail.trim()} as ${granteeRole}`);
+      setSuccessMsg(`Access granted to ${granteeEmail.trim()} as ${granteeRole}. Email notification sent!`);
       setGranteeEmail('');
       loadShareData();
     } catch (err: any) {

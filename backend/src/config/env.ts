@@ -24,7 +24,15 @@ const envSchema = z.object({
 
   // JWT Configuration
   JWT_SECRET: z.string().default('dev-secret-key-change-in-prod'),
-  JWT_EXPIRES_IN: z.string().default('7d')
+  JWT_EXPIRES_IN: z.string().default('7d'),
+
+  // SMTP / Nodemailer Configuration
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().default('587').transform((val) => parseInt(val, 10)),
+  SMTP_SECURE: z.string().default('false').transform((val) => val === 'true'),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().default('"CloudVault" <noreply@cloudvault.com>')
 });
 
 const _env = envSchema.safeParse(process.env);
