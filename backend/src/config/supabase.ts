@@ -31,8 +31,15 @@ export const supabaseAdmin = createClient(safeUrl, safeServiceKey, {
 });
 
 export const checkSupabaseConnection = async (): Promise<{ ok: boolean; message?: string }> => {
+  if (!isSupabaseConfigured) {
+    return {
+      ok: false,
+      message: 'Supabase environment variables (SUPABASE_URL / SUPABASE_ANON_KEY) are missing or set to defaults.'
+    };
+  }
+
   try {
-    const { error } = await supabase.from('users').select('count', { count: 'exact', head: true });
+    const { error } = await supabaseAdmin.from('users').select('count', { count: 'exact', head: true });
     if (error && error.code !== 'PGRST116') {
       return { ok: false, message: error.message };
     }

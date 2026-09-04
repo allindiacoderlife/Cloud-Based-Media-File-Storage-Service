@@ -64,6 +64,8 @@ export class UserRepository {
     const normalized = user.email.toLowerCase().trim();
     const userId = user.id || crypto.randomUUID();
 
+    const isProductionOrVercel = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
+
     if (isSupabaseConfigured) {
       try {
         const { data, error } = await supabaseAdmin
@@ -83,10 +85,21 @@ export class UserRepository {
         if (!error && data) {
           return data as User;
         }
-        logger.warn(`Supabase user insert failed, using fallback store: ${error?.message}`);
+
+        logger.error(`Supabase user insert failed: ${error?.message}`);
+        if (isProductionOrVercel) {
+          throw new Error(`Database error saving user: ${error?.message || 'Database insert failed'}`);
+        }
       } catch (err: any) {
-        logger.warn(`UserRepository.create exception: ${err.message}`);
+        logger.error(`UserRepository.create exception: ${err.message}`);
+        if (isProductionOrVercel) {
+          throw new Error(`Database error saving user: ${err.message}`);
+        }
       }
+    } else if (isProductionOrVercel) {
+      throw new Error(
+        'Database connection not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY (and SUPABASE_SERVICE_ROLE_KEY) in your Vercel Project Environment Variables.'
+      );
     }
 
     const fallbackUser: User = {
