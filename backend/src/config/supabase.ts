@@ -27,6 +27,13 @@ export const isSupabaseConfigured = Boolean(
   safeUrl &&
     !safeUrl.includes('placeholder.supabase.co') &&
     !safeUrl.includes('example.supabase.co') &&
+    (() => {
+      try {
+        return new URL(safeUrl).hostname.includes('.');
+      } catch {
+        return false;
+      }
+    })() &&
     safeAnonKey !== 'placeholder-anon-key' &&
     safeAnonKey !== 'default-anon-key'
 );
@@ -43,6 +50,18 @@ export const supabaseAdmin = createClient(safeUrl, safeServiceKey, {
 });
 
 export const checkSupabaseConnection = async (): Promise<{ ok: boolean; message?: string }> => {
+  let hostname = 'unknown';
+  try {
+    hostname = new URL(safeUrl).hostname;
+  } catch {}
+
+  if (!hostname.includes('.')) {
+    return {
+      ok: false,
+      message: `Invalid SUPABASE_URL: "${safeUrl}". It is set to "${hostname}", but it must be your Supabase project URL like "https://dikdzewmawiogptpaaoh.supabase.co".`
+    };
+  }
+
   if (!isSupabaseConfigured) {
     return {
       ok: false,
