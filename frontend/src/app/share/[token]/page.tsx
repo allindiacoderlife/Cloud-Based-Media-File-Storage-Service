@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   Cloud,
   Lock,
@@ -23,8 +24,14 @@ import {
 import { formatBytes, formatDate } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 
-export default function PublicSharePage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = use(params);
+function PublicShareContent() {
+  const routeParams = useParams();
+  const searchParams = useSearchParams();
+
+  const token =
+    (routeParams?.token as string) ||
+    searchParams?.get('token') ||
+    '';
 
   const [loading, setLoading] = useState(true);
   const [passwordRequired, setPasswordRequired] = useState(false);
@@ -254,3 +261,19 @@ export default function PublicSharePage({ params }: { params: Promise<{ token: s
     </div>
   );
 }
+
+export default function PublicSharePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-slate-400">
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-3" />
+          <p className="text-sm font-medium">Loading shared item...</p>
+        </div>
+      }
+    >
+      <PublicShareContent />
+    </Suspense>
+  );
+}
+

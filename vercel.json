@@ -20,6 +20,10 @@
       "dest": "backend/src/server.ts"
     },
     {
+      "src": "/share/(.*)",
+      "dest": "frontend/share/[token]?token=$1"
+    },
+    {
       "src": "/(.*)",
       "dest": "frontend/$1"
     }
